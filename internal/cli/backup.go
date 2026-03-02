@@ -34,7 +34,7 @@ func parseBackupEntry(name string) (profileName, timestamp string, ok bool) {
 	return name[:len(name)-tsLen-1], ts, true
 }
 
-// listAllBackups returns all backups sorted by profile name, then timestamp descending.
+// listAllBackups returns all backups sorted by profile name asc, timestamp desc.
 func listAllBackups() ([]profileBackup, error) {
 	bakDir := filepath.Join(config.ProfilesDir(), ".bak")
 	entries, err := os.ReadDir(bakDir)
@@ -83,27 +83,33 @@ func findBackupsFor(profileName string) ([]profileBackup, error) {
 	return result, nil
 }
 
-// copyProfileDataFromDir copies links, aliases, groups, and config from a backup dir.
-func copyProfileDataFromDir(srcDir, dstProfile string) error {
-	files := map[string]string{
-		"links.yaml":   config.ProfileLinksFile(dstProfile),
-		"aliases.yaml": config.ProfileAliasesFile(dstProfile),
-		"groups.yaml":  config.ProfileGroupsFile(dstProfile),
-		"config.yaml":  config.ProfileConfigFile(dstProfile),
-	}
-	for srcFile, dst := range files {
-		data, err := os.ReadFile(filepath.Join(srcDir, srcFile))
+// copyFilesBetweenDirs copies named files from srcDir to dstDir, skipping missing files.
+func copyFilesBetweenDirs(srcDir, dstDir string, names []string) error {
+	for _, name := range names {
+		data, err := os.ReadFile(filepath.Join(srcDir, name))
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
 			return err
 		}
-		if err := os.WriteFile(dst, data, 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dstDir, name), data, 0600); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// copyProfileDataFromDir copies links, aliases, groups, and config from a backup dir to a profile.
+func copyProfileDataFromDir(srcDir, dstProfile string) error {
+	return copyFilesBetweenDirs(srcDir, config.ProfileDir(dstProfile),
+		[]string{"links.yaml", "aliases.yaml", "groups.yaml", "config.yaml"})
+}
+
+// backupProfileToDir copies all profile files to a backup directory.
+func backupProfileToDir(profileName, bakDir string) error {
+	return copyFilesBetweenDirs(config.ProfileDir(profileName), bakDir,
+		[]string{"links.yaml", "aliases.yaml", "groups.yaml", "config.yaml"})
 }
 
 // completeBackupProfileNames returns profile names that have backups, for tab completion.
@@ -130,13 +136,14 @@ func completeBackupProfileNames(cmd *cobra.Command, args []string, toComplete st
 var profileBackupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Manage profile backups",
-	Long:  "List, view, restore, or delete profile backups.",
+	Long:  "List, view, create, restore, or delete profile backups.",
 }
 
 func init() {
 	profileBackupCmd.AddCommand(
 		profileBackupListCmd,
 		profileBackupViewCmd,
+		profileBackupCreateCmd,
 		profileBackupRestoreCmd,
 		profileBackupDeleteCmd,
 	)
@@ -144,6 +151,18 @@ func init() {
 	profileBackupRestoreCmd.Flags().String("from", "", "Backup timestamp to restore from (default: latest)")
 	profileBackupRestoreCmd.Flags().String("as", "", "Restore as a different profile name")
 	profileBackupRestoreCmd.Flags().BoolP("force", "f", false, "Overwrite if profile already exists")
+	_ = profileBackupRestoreCmd.RegisterFlagCompletionFunc("from",
+		func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) == 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			baks, _ := findBackupsFor(args[0])
+			ts := make([]string, len(baks))
+			for i, b := range baks {
+				ts[i] = b.Timestamp
+			}
+			return ts, cobra.ShellCompDirectiveNoFileComp
+		})
 }
 
 var profileBackupListCmd = &cobra.Command{
@@ -172,6 +191,7 @@ var profileBackupListCmd = &cobra.Command{
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		if len(args) > 0 {
+			// Profile-specific: show timestamp + path
 			fmt.Fprintln(w, "TIMESTAMP\tPATH")
 			fmt.Fprintln(w, "---------\t----")
 			for i, b := range backups {
@@ -182,10 +202,17 @@ var profileBackupListCmd = &cobra.Command{
 				fmt.Fprintf(w, "%s%s\t%s\n", b.Timestamp, suffix, b.Path)
 			}
 		} else {
+			// All backups: mark the newest entry per profile
 			fmt.Fprintln(w, "PROFILE\tTIMESTAMP")
 			fmt.Fprintln(w, "-------\t---------")
+			lastProfile := ""
 			for _, b := range backups {
-				fmt.Fprintf(w, "%s\t%s\n", b.ProfileName, b.Timestamp)
+				suffix := ""
+				if b.ProfileName != lastProfile {
+					suffix = "  (latest)"
+					lastProfile = b.ProfileName
+				}
+				fmt.Fprintf(w, "%s\t%s%s\n", b.ProfileName, b.Timestamp, suffix)
 			}
 		}
 		return w.Flush()
@@ -237,13 +264,13 @@ var profileBackupViewCmd = &cobra.Command{
 		groupsFile := filepath.Join(bak.Path, "groups.yaml")
 
 		links, _ := store.ListLinks(linksFile)
-		aliases, _ := store.ListAliases(aliasesFile)
-		groups, _ := store.ListGroups(groupsFile)
-		af, _ := store.LoadAliases(aliasesFile)
-		aliasesMap := map[string]string{}
-		if af != nil {
-			aliasesMap = af.Aliases
+		// load aliases once; derive both the sorted slice and the lookup map
+		aliasEntries, _ := store.ListAliases(aliasesFile)
+		aliasesMap := make(map[string]string, len(aliasEntries))
+		for _, a := range aliasEntries {
+			aliasesMap[a.Name] = a.LinkKey
 		}
+		groups, _ := store.ListGroups(groupsFile)
 
 		// Load variable prefix from backup's own config
 		prefix := "@"
@@ -263,8 +290,8 @@ var profileBackupViewCmd = &cobra.Command{
 			for _, l := range links {
 				fmt.Fprintf(w, "  %s:\t%s\n", store.DenormalizeVars(l.Key, prefix), store.DenormalizeVars(l.URL, prefix))
 			}
-			fmt.Fprintf(w, "aliases (%d):\t\n", len(aliases))
-			for _, a := range aliases {
+			fmt.Fprintf(w, "aliases (%d):\t\n", len(aliasEntries))
+			for _, a := range aliasEntries {
 				fmt.Fprintf(w, "  %s:\t%s\n", a.Name, a.LinkKey)
 			}
 			fmt.Fprintf(w, "groups (%d):\t\n", len(groups))
@@ -282,11 +309,36 @@ var profileBackupViewCmd = &cobra.Command{
 			}
 		} else {
 			fmt.Fprintf(w, "links:\t%d\n", len(links))
-			fmt.Fprintf(w, "aliases:\t%d\n", len(aliases))
+			fmt.Fprintf(w, "aliases:\t%d\n", len(aliasEntries))
 			fmt.Fprintf(w, "groups:\t%d\n", len(groups))
 		}
 
 		return w.Flush()
+	},
+}
+
+var profileBackupCreateCmd = &cobra.Command{
+	Use:               "create <name>",
+	Short:             "Create a manual backup of a profile",
+	Long:              "Create a backup snapshot of a profile without removing it.",
+	Example:           `  $ zebro profile backup create work`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeProfileNames,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		if !config.ProfileExists(name) {
+			return fmt.Errorf("profile %q does not exist", name)
+		}
+		ts := time.Now().Format("20060102-150405")
+		bakDir := filepath.Join(config.ProfilesDir(), ".bak", name+"."+ts)
+		if err := os.MkdirAll(bakDir, 0700); err != nil {
+			return fmt.Errorf("creating backup dir: %w", err)
+		}
+		if err := backupProfileToDir(name, bakDir); err != nil {
+			return fmt.Errorf("creating backup: %w", err)
+		}
+		fmt.Printf("created backup of profile %q: %s\n", name, ts)
+		return nil
 	},
 }
 
@@ -354,6 +406,7 @@ var profileBackupRestoreCmd = &cobra.Command{
 				if err := os.Rename(config.ProfileDir(targetName), bakDir); err != nil {
 					return fmt.Errorf("backing up existing profile: %w", err)
 				}
+				fmt.Printf("backed up existing profile %q as %s\n", targetName, ts)
 			} else {
 				if err := os.RemoveAll(config.ProfileDir(targetName)); err != nil {
 					return fmt.Errorf("removing existing profile: %w", err)
@@ -374,11 +427,11 @@ var profileBackupRestoreCmd = &cobra.Command{
 }
 
 var profileBackupDeleteCmd = &cobra.Command{
-	Use:   "delete <name> <ts>",
-	Short: "Delete a specific backup",
-	Long:  "Permanently delete a single backup entry.",
+	Use:     "delete <name> <ts>",
+	Short:   "Delete a specific backup",
+	Long:    "Permanently delete a single backup entry.",
 	Example: `  $ zebro profile backup delete work 20260302-151524`,
-	Args: cobra.ExactArgs(2),
+	Args:    cobra.ExactArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeBackupProfileNames(cmd, args, toComplete)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -23,9 +24,31 @@ var profileCmd = &cobra.Command{
 }
 
 func init() {
-	profileCmd.AddCommand(profileListCmd, profileViewCmd, profileCreateCmd, profileDeleteCmd, profileUseCmd, profileBackupCmd)
+	profileCmd.AddCommand(
+		profileListCmd,
+		profileViewCmd,
+		profileCreateCmd,
+		profileDeleteCmd,
+		profileUseCmd,
+		profileRenameCmd,
+		profileBackupCmd,
+	)
 	profileCreateCmd.Flags().StringP("description", "d", "", "Profile description")
 	profileCreateCmd.Flags().StringP("source", "s", "", "Copy links, aliases, and groups from an existing profile")
+}
+
+// validateProfileName checks that a profile name is safe to use as a directory name.
+func validateProfileName(name string) error {
+	if name == "" {
+		return fmt.Errorf("profile name cannot be empty")
+	}
+	if strings.HasPrefix(name, ".") {
+		return fmt.Errorf("profile name cannot start with '.'")
+	}
+	if strings.ContainsAny(name, "/ \t\n\\") {
+		return fmt.Errorf("profile name cannot contain slashes or whitespace")
+	}
+	return nil
 }
 
 var profileCreateCmd = &cobra.Command{
@@ -40,13 +63,16 @@ var profileCreateCmd = &cobra.Command{
 			return cmd.Help()
 		}
 		name := args[0]
+		if err := validateProfileName(name); err != nil {
+			return err
+		}
+
 		desc, _ := cmd.Flags().GetString("description")
 		from, _ := cmd.Flags().GetString("source")
 
 		if config.ProfileExists(name) {
 			return fmt.Errorf("profile %q already exists", name)
 		}
-
 		if from != "" && !config.ProfileExists(from) {
 			return fmt.Errorf("source profile %q does not exist", from)
 		}
@@ -67,23 +93,10 @@ var profileCreateCmd = &cobra.Command{
 	},
 }
 
-// copyProfileData copies links, aliases, and groups from src to dst profile.
+// copyProfileData copies links, aliases, and groups (not config) from src to dst profile.
 func copyProfileData(src, dst string) error {
-	files := []func(string) string{
-		config.ProfileLinksFile,
-		config.ProfileAliasesFile,
-		config.ProfileGroupsFile,
-	}
-	for _, fn := range files {
-		data, err := os.ReadFile(fn(src))
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(fn(dst), data, 0600); err != nil {
-			return err
-		}
-	}
-	return nil
+	return copyFilesBetweenDirs(config.ProfileDir(src), config.ProfileDir(dst),
+		[]string{"links.yaml", "aliases.yaml", "groups.yaml"})
 }
 
 var profileListCmd = &cobra.Command{
@@ -106,8 +119,9 @@ var profileListCmd = &cobra.Command{
 			return nil
 		}
 
-		fmt.Printf("%-20s %s\n", "NAME", "DESCRIPTION")
-		fmt.Printf("%-20s %s\n", "----", "-----------")
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tDESCRIPTION")
+		fmt.Fprintln(w, "----\t-----------")
 		for _, name := range profiles {
 			p, err := config.LoadProfile(name)
 			if err != nil {
@@ -115,11 +129,11 @@ var profileListCmd = &cobra.Command{
 			}
 			active := ""
 			if name == cfg.ActiveProfile {
-				active = " *"
+				active = "  (active)"
 			}
-			fmt.Printf("%-20s %s%s\n", name, p.Description, active)
+			fmt.Fprintf(w, "%s%s\t%s\n", name, active, p.Description)
 		}
-		return nil
+		return w.Flush()
 	},
 }
 
@@ -153,13 +167,13 @@ var profileViewCmd = &cobra.Command{
 			return err
 		}
 
-		detailFlag := cmd.Flags().Changed("detail")
-		summaryFlag := cmd.Flags().Changed("summary")
-		detail, _ := cmd.Flags().GetBool("detail")
-		if summaryFlag {
+		// detail mode: config default, overridden by explicit flags; -s wins over -d
+		detail := cfg.ProfileViewMode == "detail"
+		if cmd.Flags().Changed("detail") {
+			detail = true
+		}
+		if cmd.Flags().Changed("summary") {
 			detail = false
-		} else if !detailFlag {
-			detail = cfg.ProfileViewMode == "detail"
 		}
 
 		active := ""
@@ -168,24 +182,21 @@ var profileViewCmd = &cobra.Command{
 		}
 
 		links, _ := store.ListLinks(config.ProfileLinksFile(name))
-		aliases, _ := store.ListAliases(config.ProfileAliasesFile(name))
-		groups, _ := store.ListGroups(config.ProfileGroupsFile(name))
-		af, _ := store.LoadAliases(config.ProfileAliasesFile(name))
-		aliasesMap := map[string]string{}
-		if af != nil {
-			aliasesMap = af.Aliases
+		// load aliases once; derive both the sorted slice and the lookup map
+		aliasEntries, _ := store.ListAliases(config.ProfileAliasesFile(name))
+		aliasesMap := make(map[string]string, len(aliasEntries))
+		for _, a := range aliasEntries {
+			aliasesMap[a.Name] = a.LinkKey
 		}
+		groups, _ := store.ListGroups(config.ProfileGroupsFile(name))
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintf(w, "name:\t%s%s\n", p.Name, active)
-
-		// description (profile-only key)
 		if p.Description != "" {
 			fmt.Fprintf(w, "description:\t%s\n", p.Description)
 		}
 		fmt.Fprintf(w, "dir:\t%s\n", config.ProfileDir(name))
 
-		// config section
 		fmt.Fprintf(w, "config:\t\n")
 		for _, k := range profileConfigKeys() {
 			if k.profileOnly {
@@ -202,14 +213,13 @@ var profileViewCmd = &cobra.Command{
 			}
 		}
 
-		// links / aliases / groups
 		if detail {
 			fmt.Fprintf(w, "links (%d):\t\n", len(links))
 			for _, l := range links {
 				fmt.Fprintf(w, "  %s:\t%s\n", store.DenormalizeVars(l.Key, cfg.VariablePrefix), store.DenormalizeVars(l.URL, cfg.VariablePrefix))
 			}
-			fmt.Fprintf(w, "aliases (%d):\t\n", len(aliases))
-			for _, a := range aliases {
+			fmt.Fprintf(w, "aliases (%d):\t\n", len(aliasEntries))
+			for _, a := range aliasEntries {
 				fmt.Fprintf(w, "  %s:\t%s\n", a.Name, a.LinkKey)
 			}
 			fmt.Fprintf(w, "groups (%d):\t\n", len(groups))
@@ -227,7 +237,7 @@ var profileViewCmd = &cobra.Command{
 			}
 		} else {
 			fmt.Fprintf(w, "links:\t%d\n", len(links))
-			fmt.Fprintf(w, "aliases:\t%d\n", len(aliases))
+			fmt.Fprintf(w, "aliases:\t%d\n", len(aliasEntries))
 			fmt.Fprintf(w, "groups:\t%d\n", len(groups))
 		}
 
@@ -247,16 +257,70 @@ var profileUseCmd = &cobra.Command{
 	ValidArgsFunction: completeProfileNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-
 		if !config.ProfileExists(name) {
 			return fmt.Errorf("profile %q does not exist (run: zebro profile create %s)", name, name)
 		}
-
 		if err := config.SetActiveProfile(name); err != nil {
 			return err
 		}
-
 		fmt.Printf("switched to profile %q\n", name)
+		return nil
+	},
+}
+
+var profileRenameCmd = &cobra.Command{
+	Use:   "rename <old> <new>",
+	Short: "Rename a profile",
+	Long:  "Rename a profile. If it is the active profile, the active profile is updated automatically.\nExisting backups are also renamed to match the new profile name.",
+	Example: `  $ zebro profile rename work work-old
+  $ zebro profile rename personal home`,
+	Args: cobra.ExactArgs(2),
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeProfileNames(cmd, args, toComplete)
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		oldName, newName := args[0], args[1]
+		if err := validateProfileName(newName); err != nil {
+			return err
+		}
+		if !config.ProfileExists(oldName) {
+			return fmt.Errorf("profile %q does not exist", oldName)
+		}
+		if config.ProfileExists(newName) {
+			return fmt.Errorf("profile %q already exists", newName)
+		}
+
+		// Move the profile directory
+		if err := os.Rename(config.ProfileDir(oldName), config.ProfileDir(newName)); err != nil {
+			return fmt.Errorf("renaming profile: %w", err)
+		}
+
+		// Update the name field in the profile config
+		if p, err := config.LoadProfile(newName); err == nil {
+			p.Name = newName
+			_ = config.SaveProfile(newName, p)
+		}
+
+		// Rename backup directories to match the new profile name
+		baks, _ := findBackupsFor(oldName)
+		bakBaseDir := filepath.Join(config.ProfilesDir(), ".bak")
+		for _, b := range baks {
+			newBakPath := filepath.Join(bakBaseDir, newName+"."+b.Timestamp)
+			_ = os.Rename(b.Path, newBakPath)
+		}
+
+		// If renamed profile was active, update active profile
+		if active, _ := config.GetActiveProfile(); active == oldName {
+			if err := config.SetActiveProfile(newName); err != nil {
+				return fmt.Errorf("updating active profile: %w", err)
+			}
+			fmt.Printf("renamed profile %q to %q (active profile updated)\n", oldName, newName)
+		} else {
+			fmt.Printf("renamed profile %q to %q\n", oldName, newName)
+		}
 		return nil
 	},
 }
@@ -281,7 +345,6 @@ var profileDeleteCmd = &cobra.Command{
 		if name == cfg.ActiveProfile {
 			return fmt.Errorf("cannot remove active profile %q (switch first with: zebro profile use <other>)", name)
 		}
-
 		if !config.ProfileExists(name) {
 			return fmt.Errorf("profile %q does not exist", name)
 		}
@@ -290,12 +353,14 @@ var profileDeleteCmd = &cobra.Command{
 		backup, _ := cmd.Flags().GetBool("backup")
 		purge, _ := cmd.Flags().GetBool("purge")
 
+		if purge && (force || backup) {
+			return fmt.Errorf("--purge cannot be used with --force or --backup")
+		}
 		if force && backup {
 			return fmt.Errorf("--force and --backup are mutually exclusive")
 		}
 
 		if purge {
-			// Delete profile permanently + all its backups
 			if err := os.RemoveAll(config.ProfileDir(name)); err != nil {
 				return fmt.Errorf("removing profile: %w", err)
 			}
@@ -324,7 +389,7 @@ var profileDeleteCmd = &cobra.Command{
 			if err := os.Rename(dir, bakDir); err != nil {
 				return fmt.Errorf("backing up profile: %w", err)
 			}
-			fmt.Printf("removed profile %q (backup: %s)\n", name, bakDir)
+			fmt.Printf("removed profile %q (backup: %s)\n", name, ts)
 		} else {
 			if err := os.RemoveAll(dir); err != nil {
 				return fmt.Errorf("removing profile: %w", err)
@@ -352,4 +417,3 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 	}
 	return profiles, cobra.ShellCompDirectiveNoFileComp
 }
-
