@@ -3,6 +3,10 @@ version: 2
 before:
   hooks:
     - go mod tidy
+    - mkdir -p completions
+    - sh -c "go run ./cmd/zebro completion bash > completions/zebro.bash"
+    - sh -c "go run ./cmd/zebro completion zsh > completions/zebro.zsh"
+    - sh -c "go run ./cmd/zebro completion fish > completions/zebro.fish"
 
 builds:
   - id: zebro
@@ -24,6 +28,7 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
+      - completions/
 
 checksum:
   name_template: "checksums.txt"

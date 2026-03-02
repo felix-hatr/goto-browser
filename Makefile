@@ -3,7 +3,7 @@ VERSION ?= dev
 LDFLAGS := -buildvcs=false -ldflags="-X 'main.Version=$(VERSION)'"
 BINDIR  := bin
 
-.PHONY: build test install clean lint tidy
+.PHONY: build test install clean lint tidy completions
 
 build:
 	@mkdir -p $(BINDIR)
@@ -23,6 +23,12 @@ lint:
 
 tidy:
 	go mod tidy
+
+completions: build
+	@mkdir -p completions
+	./$(BINDIR)/$(BINARY) completion bash > completions/zebro.bash
+	./$(BINDIR)/$(BINARY) completion zsh > completions/zebro.zsh
+	./$(BINDIR)/$(BINARY) completion fish > completions/zebro.fish
 
 # Quick local run
 run: build

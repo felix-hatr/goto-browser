@@ -42,21 +42,8 @@ type ProfileConfig struct {
 	ProfileViewMode   string `yaml:"profile_view_mode,omitempty"`
 }
 
-// LoadGlobal loads the raw global config without applying profile overrides.
-// Use this when you need the actual stored global value, not the effective (profile-merged) value.
-func LoadGlobal() (*GlobalConfig, error) {
-	cfgPath := ConfigFile()
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &GlobalConfig{}, nil
-		}
-		return nil, fmt.Errorf("reading config: %w", err)
-	}
-	var cfg GlobalConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config: %w", err)
-	}
+// applyConfigDefaults fills in zero-value fields with their defaults.
+func applyConfigDefaults(cfg *GlobalConfig) {
 	if cfg.VariablePrefix == "" {
 		cfg.VariablePrefix = defaultVariablePrefix
 	}
@@ -75,6 +62,24 @@ func LoadGlobal() (*GlobalConfig, error) {
 	if cfg.ProfileViewMode == "" {
 		cfg.ProfileViewMode = "summary"
 	}
+}
+
+// LoadGlobal loads the raw global config without applying profile overrides.
+// Use this when you need the actual stored global value, not the effective (profile-merged) value.
+func LoadGlobal() (*GlobalConfig, error) {
+	cfgPath := ConfigFile()
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &GlobalConfig{}, nil
+		}
+		return nil, fmt.Errorf("reading config: %w", err)
+	}
+	var cfg GlobalConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+	applyConfigDefaults(&cfg)
 	return &cfg, nil
 }
 
@@ -96,24 +101,7 @@ func Load() (*GlobalConfig, error) {
 	}
 
 	// Apply defaults
-	if cfg.VariablePrefix == "" {
-		cfg.VariablePrefix = defaultVariablePrefix
-	}
-	if cfg.VariableDisplay == "" {
-		cfg.VariableDisplay = "named"
-	}
-	if cfg.OpenMode == "" {
-		cfg.OpenMode = "new_tab"
-	}
-	if cfg.OpenDefault == "" {
-		cfg.OpenDefault = "link"
-	}
-	if cfg.ProfileDeleteMode == "" {
-		cfg.ProfileDeleteMode = "backup"
-	}
-	if cfg.ProfileViewMode == "" {
-		cfg.ProfileViewMode = "summary"
-	}
+	applyConfigDefaults(&cfg)
 
 	// Load active profile from .current_profile
 	cfg.ActiveProfile, err = GetActiveProfile()
@@ -197,16 +185,11 @@ func autoInit() (*GlobalConfig, error) {
 	fmt.Fprintln(os.Stderr, "zebro: no config found. initializing...")
 
 	cfg := &GlobalConfig{
-		Version:           "1",
-		Browser:           "chrome",
-		VariablePrefix:    defaultVariablePrefix,
-		VariableDisplay:   "named",
-		OpenMode:          "new_tab",
-		OpenDefault:       "link",
-		ProfileDeleteMode: "backup",
-		ProfileViewMode:   "summary",
-		ActiveProfile:     "default",
+		Version:       "1",
+		Browser:       "chrome",
+		ActiveProfile: "default",
 	}
+	applyConfigDefaults(cfg)
 
 	if err := Save(cfg); err != nil {
 		return nil, err
