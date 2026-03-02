@@ -19,18 +19,19 @@ var completionCmd = &cobra.Command{
 
 The script enables tab completion for all zebro commands, subcommands, flags,
 and dynamic values (link keys, group names, profile names, config keys).`,
-	Example: `  # zsh/bash — shell is auto-detected from $SHELL
+	Example: `  # shell is auto-detected from $SHELL
   $ zebro completion
 
-  # fish
-  $ zebro completion -s fish
-
   # Add to your shell profile:
-  #   zsh/bash: echo 'source <(zebro completion)' >> ~/.zshrc
-  #   fish:     zebro completion -s fish > ~/.config/fish/completions/zebro.fish`,
-	Args: cobra.NoArgs,
+  #   zsh:  echo 'source <(zebro completion)' >> ~/.zshrc
+  #   bash: echo 'source <(zebro completion)' >> ~/.bashrc
+  #   fish: zebro completion -s fish > ~/.config/fish/completions/zebro.fish`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		shell := completionShellFlag
+		if shell == "" && len(args) > 0 {
+			shell = args[0]
+		}
 		if shell == "" {
 			shell = detectShell()
 		}

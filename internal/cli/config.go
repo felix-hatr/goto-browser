@@ -2,31 +2,72 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/felix-hatr/goto-browser/internal/config"
 	"github.com/spf13/cobra"
 )
+
+// configKeyDef describes a single config key — its name, help text, and valid values.
+// Adding a new key here automatically updates help, tab completion, and list output.
+type configKeyDef struct {
+	key         string
+	desc        string
+	values      []string // nil = free-form input
+	profileOnly bool
+}
+
+// sharedConfigKeys are available for both global and profile config.
+// Profile values override the global value.
+var sharedConfigKeys = []configKeyDef{
+	{"browser", "Browser {chrome|brave|edge|arc|safari|whale} (default: chrome)", []string{"chrome", "brave", "edge", "arc", "safari", "whale"}, false},
+	{"variable_prefix", "Variable prefix character (default: @)", nil, false},
+	{"open_mode", "How to open links {new_tab|new_window} (default: new_tab)", []string{"new_tab", "new_window"}, false},
+	{"profile_delete_mode", "How to delete profiles {backup|permanent} (default: backup)", []string{"backup", "permanent"}, false},
+	{"profile_view_mode", "Default view mode for profile view {summary|detail} (default: summary)", []string{"summary", "detail"}, false},
+	{"description", "Profile description (profile only)", nil, true},
+}
+
+func globalConfigKeys() []configKeyDef {
+	var keys []configKeyDef
+	for _, k := range sharedConfigKeys {
+		if !k.profileOnly {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+func profileConfigKeys() []configKeyDef {
+	return sharedConfigKeys
+}
+
+func keyNames(defs []configKeyDef) []string {
+	names := make([]string, len(defs))
+	for i, d := range defs {
+		names[i] = d.key
+	}
+	return names
+}
+
+func buildConfigLong() string {
+	var sb strings.Builder
+	sb.WriteString("Manage configuration for zebro.\n\n")
+	sb.WriteString("By default, commands operate on the current profile's config.\n")
+	sb.WriteString("Profile values override global values. Use -g for global config.\n\n")
+	sb.WriteString("SETTINGS\n")
+	for _, k := range sharedConfigKeys {
+		fmt.Fprintf(&sb, "  - %-22s %s\n", k.key+":", k.desc)
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
 
 var configGlobalFlag bool
 
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage configuration",
-	Long: `Manage configuration for zebro.
-
-By default, commands operate on the current profile's config.
-Use -g to read or write global config instead.
-
-PROFILE SETTINGS
-  - description:      Profile description
-  - browser:          Browser to use for this profile {chrome|brave|edge|arc|safari|whale}
-  - variable_prefix:  Variable prefix character for this profile (e.g. @, :, ^)
-  - open_mode:        How to open links for this profile {new_tab|new_window}
-
-GLOBAL SETTINGS  (zebro config <cmd> -g)
-  - browser:          Default browser {chrome|brave|edge|arc|safari|whale} (default: chrome)
-  - variable_prefix:  Default variable prefix character (default: @)
-  - open_mode:        Default open mode {new_tab|new_window} (default: new_tab)`,
+	Long:  buildConfigLong(),
 }
 
 func init() {
@@ -52,9 +93,9 @@ var configGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if configGlobalFlag {
-			return []string{"browser", "variable_prefix", "open_mode"}, cobra.ShellCompDirectiveNoFileComp
+			return keyNames(globalConfigKeys()), cobra.ShellCompDirectiveNoFileComp
 		}
-		return []string{"description", "browser", "variable_prefix", "open_mode"}, cobra.ShellCompDirectiveNoFileComp
+		return keyNames(profileConfigKeys()), cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if configGlobalFlag {
@@ -69,26 +110,19 @@ var configSetCmd = &cobra.Command{
 	Short: "Set a config value",
 	Args:  cobra.ExactArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		keys := profileConfigKeys()
 		if configGlobalFlag {
-			if len(args) == 0 {
-				return []string{"browser", "variable_prefix", "open_mode"}, cobra.ShellCompDirectiveNoFileComp
-			}
-			if len(args) == 1 && args[0] == "browser" {
-				return []string{"chrome", "brave", "edge", "arc", "safari", "whale"}, cobra.ShellCompDirectiveNoFileComp
-			}
-			if len(args) == 1 && args[0] == "open_mode" {
-				return []string{"new_tab", "new_window"}, cobra.ShellCompDirectiveNoFileComp
-			}
-			return nil, cobra.ShellCompDirectiveNoFileComp
+			keys = globalConfigKeys()
 		}
 		if len(args) == 0 {
-			return []string{"description", "browser", "variable_prefix", "open_mode"}, cobra.ShellCompDirectiveNoFileComp
+			return keyNames(keys), cobra.ShellCompDirectiveNoFileComp
 		}
-		if len(args) == 1 && args[0] == "browser" {
-			return []string{"chrome", "brave", "edge", "arc", "safari", "whale"}, cobra.ShellCompDirectiveNoFileComp
-		}
-		if len(args) == 1 && args[0] == "open_mode" {
-			return []string{"new_tab", "new_window"}, cobra.ShellCompDirectiveNoFileComp
+		if len(args) == 1 {
+			for _, k := range keys {
+				if k.key == args[0] && k.values != nil {
+					return k.values, cobra.ShellCompDirectiveNoFileComp
+				}
+			}
 		}
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
@@ -107,10 +141,9 @@ func runConfigListGlobal() error {
 	}
 	activeProfile, _ := config.GetActiveProfile()
 	fmt.Printf("%-20s %s\n", "active_profile", activeProfile)
-	keys := []string{"browser", "variable_prefix", "open_mode"}
-	for _, k := range keys {
-		val, _ := cfg.Get(k)
-		fmt.Printf("%-20s %s\n", k, val)
+	for _, k := range globalConfigKeys() {
+		val, _ := cfg.Get(k.key)
+		fmt.Printf("%-20s %s\n", k.key, val)
 	}
 	return nil
 }
@@ -127,14 +160,13 @@ func runConfigListProfile(cmd *cobra.Command) error {
 
 	fmt.Printf("%-20s %s\n", "profile", profile)
 
-	keys := []string{"description", "browser", "variable_prefix", "open_mode"}
-	for _, k := range keys {
-		profileVal, _ := p.Get(k)
+	for _, k := range profileConfigKeys() {
+		profileVal, _ := p.Get(k.key)
 		if profileVal != "" {
-			fmt.Printf("%-20s %s\n", k, profileVal)
+			fmt.Printf("%-20s %s\n", k.key, profileVal)
 		} else {
-			globalVal, _ := cfg.Get(k)
-			fmt.Printf("%-20s %-20s (global)\n", k, globalVal)
+			globalVal, _ := cfg.Get(k.key)
+			fmt.Printf("%-20s %-20s (global)\n", k.key, globalVal)
 		}
 	}
 	return nil
