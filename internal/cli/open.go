@@ -15,6 +15,7 @@ var openNewTab bool
 var openDryRun bool
 var openBrowserOverride string
 var openGroupFlag string
+var openLinkFlag string
 
 func init() {
 	openCmd.Flags().BoolVarP(&openNewWindow, "new-window", "n", false, "Open in a new window (overrides config open_mode)")
@@ -22,9 +23,18 @@ func init() {
 	openCmd.Flags().BoolVar(&openDryRun, "dry-run", false, "Print URL(s) without opening the browser")
 	openCmd.Flags().StringVarP(&openBrowserOverride, "browser", "b", "", "Browser to use for this command")
 	openCmd.Flags().StringVarP(&openGroupFlag, "group", "g", "", "Open a group by name")
+	openCmd.Flags().StringVarP(&openLinkFlag, "link", "l", "", "Open a link by key")
 
 	openCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if openGroupFlag != "" {
+			return completeGroupNames(cmd, args, toComplete)
+		}
+		if openLinkFlag != "" {
+			return completeLinkKeys(cmd, args, toComplete)
+		}
+		// No explicit flag: use open_default config to decide completion type
+		_, cfg, err := currentProfile()
+		if err == nil && cfg.OpenDefault == "group" {
 			return completeGroupNames(cmd, args, toComplete)
 		}
 		return completeLinkKeys(cmd, args, toComplete)
@@ -32,23 +42,42 @@ func init() {
 }
 
 var openCmd = &cobra.Command{
-	Use:   "open <key>",
+	Use:   "open [key]",
 	Short: "Open a link or group in the browser",
-	Long:  "Open a link key in the browser. Use -g/--group to open a group as tabs.",
+	Long: `Open a link key or group in the browser.
+
+Use -l/--link to open a link, or -g/--group to open a group.
+Without a flag, the positional argument is treated as a link or group
+based on the open_default config setting (default: link).`,
 	Example: `  $ zebro open github/octocat/hello-world
   $ zebro open jira/PROJ-123
   $ zebro open -g morning
+  $ zebro open -l github/octocat/hello-world
   $ zebro open jira/PROJ-123 --dry-run`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if openNewWindow && openNewTab {
 			return fmt.Errorf("--new-window and --new-tab are mutually exclusive")
 		}
+		if openGroupFlag != "" && openLinkFlag != "" {
+			return fmt.Errorf("-g/--group and -l/--link are mutually exclusive")
+		}
 		if openGroupFlag != "" {
 			return runOpenGroup(openGroupFlag)
 		}
+		if openLinkFlag != "" {
+			return runOpenLinkKey(openLinkFlag)
+		}
 		if len(args) == 0 {
 			return cmd.Help()
+		}
+		// No explicit flag: use open_default config
+		_, cfg, err := currentProfile()
+		if err != nil {
+			return err
+		}
+		if cfg.OpenDefault == "group" {
+			return runOpenGroup(args[0])
 		}
 		return runOpenLinkKey(args[0])
 	},
