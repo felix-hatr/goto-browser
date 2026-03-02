@@ -23,7 +23,7 @@ var profileCmd = &cobra.Command{
 }
 
 func init() {
-	profileCmd.AddCommand(profileListCmd, profileViewCmd, profileCreateCmd, profileDeleteCmd, profileUseCmd, profileRestoreCmd)
+	profileCmd.AddCommand(profileListCmd, profileViewCmd, profileCreateCmd, profileDeleteCmd, profileUseCmd, profileBackupCmd)
 	profileCreateCmd.Flags().StringP("description", "d", "", "Profile description")
 	profileCreateCmd.Flags().StringP("source", "s", "", "Copy links, aliases, and groups from an existing profile")
 }
@@ -91,25 +91,6 @@ var profileListCmd = &cobra.Command{
 	Short: "List all profiles",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		showBackups, _ := cmd.Flags().GetBool("backups")
-		if showBackups {
-			backups, err := listAllBackups()
-			if err != nil {
-				return err
-			}
-			if len(backups) == 0 {
-				fmt.Println("no backups found")
-				return nil
-			}
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "PROFILE\tTIMESTAMP")
-			fmt.Fprintln(w, "-------\t---------")
-			for _, b := range backups {
-				fmt.Fprintf(w, "%s\t%s\n", b.ProfileName, b.Timestamp)
-			}
-			return w.Flush()
-		}
-
 		cfg, err := config.Load()
 		if err != nil {
 			return err
@@ -140,10 +121,6 @@ var profileListCmd = &cobra.Command{
 		}
 		return nil
 	},
-}
-
-func init() {
-	profileListCmd.Flags().Bool("backups", false, "List backups instead of profiles")
 }
 
 var profileViewCmd = &cobra.Command{
@@ -254,16 +231,6 @@ var profileViewCmd = &cobra.Command{
 			fmt.Fprintf(w, "groups:\t%d\n", len(groups))
 		}
 
-		// backups section
-		showBackups, _ := cmd.Flags().GetBool("backups")
-		if showBackups {
-			baks, _ := findBackupsFor(name)
-			fmt.Fprintf(w, "backups (%d):\t\n", len(baks))
-			for _, b := range baks {
-				fmt.Fprintf(w, "  %s:\t%s\n", b.Timestamp, b.Path)
-			}
-		}
-
 		return w.Flush()
 	},
 }
@@ -271,7 +238,6 @@ var profileViewCmd = &cobra.Command{
 func init() {
 	profileViewCmd.Flags().BoolP("detail", "d", false, "Show full lists of links, aliases, and groups")
 	profileViewCmd.Flags().BoolP("summary", "s", false, "Show summary only (overrides profile_view_mode=detail)")
-	profileViewCmd.Flags().Bool("backups", false, "Show backup list for the profile")
 }
 
 var profileUseCmd = &cobra.Command{
@@ -387,116 +353,3 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 	return profiles, cobra.ShellCompDirectiveNoFileComp
 }
 
-var profileRestoreCmd = &cobra.Command{
-	Use:   "restore <name>",
-	Short: "Restore a profile from backup",
-	Long:  "Restore a profile from its most recent backup. Use --backup to pick a specific timestamp.",
-	Example: `  $ zebro profile restore work                      # restore latest backup
-  $ zebro profile restore work --backup 20260302-150405
-  $ zebro profile restore work --as work2            # restore as a new name
-  $ zebro profile restore work --force               # overwrite existing profile`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 0 {
-			return cmd.Help()
-		}
-		name := args[0]
-		as, _ := cmd.Flags().GetString("as")
-		force, _ := cmd.Flags().GetBool("force")
-		backupTS, _ := cmd.Flags().GetString("backup")
-
-		targetName := name
-		if as != "" {
-			targetName = as
-		}
-
-		// Find the backup to restore from
-		baks, err := findBackupsFor(name)
-		if err != nil {
-			return err
-		}
-		if len(baks) == 0 {
-			return fmt.Errorf("no backups found for profile %q", name)
-		}
-
-		var bak *profileBackup
-		if backupTS != "" {
-			for i, b := range baks {
-				if b.Timestamp == backupTS {
-					bak = &baks[i]
-					break
-				}
-			}
-			if bak == nil {
-				return fmt.Errorf("backup %q not found for profile %q", backupTS, name)
-			}
-		} else {
-			bak = &baks[0] // newest first
-		}
-
-		// Handle conflict
-		if config.ProfileExists(targetName) {
-			if !force {
-				return fmt.Errorf("profile %q already exists\n  use --as <name> to restore as a different name\n  use --force to overwrite", targetName)
-			}
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			if cfg.ProfileDeleteMode == "backup" {
-				ts := time.Now().Format("20060102-150405")
-				bakDir := filepath.Join(config.ProfilesDir(), ".bak", targetName+"."+ts)
-				if err := os.MkdirAll(filepath.Dir(bakDir), 0700); err != nil {
-					return fmt.Errorf("creating backup dir: %w", err)
-				}
-				if err := os.Rename(config.ProfileDir(targetName), bakDir); err != nil {
-					return fmt.Errorf("backing up existing profile: %w", err)
-				}
-			} else {
-				if err := os.RemoveAll(config.ProfileDir(targetName)); err != nil {
-					return fmt.Errorf("removing existing profile: %w", err)
-				}
-			}
-		}
-
-		// Create target profile dir and copy data
-		if err := config.EnsureProfile(targetName, ""); err != nil {
-			return err
-		}
-		if err := copyProfileDataFromDir(bak.Path, targetName); err != nil {
-			return fmt.Errorf("restoring profile data: %w", err)
-		}
-
-		fmt.Printf("restored profile %q from backup %s\n", targetName, bak.Timestamp)
-		return nil
-	},
-}
-
-func init() {
-	profileRestoreCmd.Flags().String("as", "", "Restore as a different profile name")
-	profileRestoreCmd.Flags().BoolP("force", "f", false, "Overwrite existing profile")
-	profileRestoreCmd.Flags().String("backup", "", "Specific backup timestamp to restore (default: latest)")
-}
-
-// copyProfileDataFromDir copies links, aliases, groups, and config from a backup dir.
-func copyProfileDataFromDir(srcDir, dstProfile string) error {
-	files := map[string]string{
-		"links.yaml":   config.ProfileLinksFile(dstProfile),
-		"aliases.yaml": config.ProfileAliasesFile(dstProfile),
-		"groups.yaml":  config.ProfileGroupsFile(dstProfile),
-		"config.yaml":  config.ProfileConfigFile(dstProfile),
-	}
-	for srcFile, dst := range files {
-		data, err := os.ReadFile(filepath.Join(srcDir, srcFile))
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return err
-		}
-		if err := os.WriteFile(dst, data, 0600); err != nil {
-			return err
-		}
-	}
-	return nil
-}
