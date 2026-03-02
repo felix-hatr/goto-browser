@@ -26,7 +26,6 @@ func init() {
 	groupAddCmd.Flags().StringArrayP("link", "l", nil, "Link key to add (repeatable)")
 	groupRemoveCmd.Flags().Int("at", 0, "Position to remove (1-based)")
 	groupRemoveCmd.Flags().StringArrayP("link", "l", nil, "Link key to remove (repeatable)")
-	groupClearCmd.Flags().Bool("force", false, "Skip backup and delete immediately")
 
 	groupCreateCmd.RegisterFlagCompletionFunc("link", completeLinkKeysAll)
 	groupAddCmd.RegisterFlagCompletionFunc("link", completeLinkKeysAll)
@@ -495,32 +494,21 @@ Removing by position (--at) removes the link at that 1-based index.`,
 var groupClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Remove all groups",
-	Long: `Remove all groups. Creates a backup at groups.yaml.bak by default.
-Use --force to skip the backup.`,
-	Args: cobra.NoArgs,
+	Long:  "Remove all groups from the current profile.",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile, _, err := currentProfile()
 		if err != nil {
 			return err
 		}
 		path := config.ProfileGroupsFile(profile)
-		force, _ := cmd.Flags().GetBool("force")
-		if !force {
-			if err := backupFile(path); err != nil {
-				return fmt.Errorf("creating backup: %w", err)
-			}
-		}
 		if err := store.SaveGroups(path, &store.GroupFile{
 			Version: "1",
 			Groups:  map[string]store.GroupEntry{},
 		}); err != nil {
 			return err
 		}
-		if force {
-			fmt.Println("cleared all groups")
-		} else {
-			fmt.Printf("cleared all groups (backup: %s.bak)\n", path)
-		}
+		fmt.Println("cleared all groups")
 		return nil
 	},
 }

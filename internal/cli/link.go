@@ -20,7 +20,6 @@ var linkCmd = &cobra.Command{
 func init() {
 	linkCmd.AddCommand(linkListCmd, linkViewCmd, linkCreateCmd, linkDeleteCmd, linkClearCmd)
 	linkCreateCmd.Flags().StringP("description", "d", "", "Link description")
-	linkClearCmd.Flags().Bool("force", false, "Skip backup and delete immediately")
 
 	defaultHelp := linkCmd.HelpFunc()
 	linkCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
@@ -287,32 +286,21 @@ var linkDeleteCmd = &cobra.Command{
 var linkClearCmd = &cobra.Command{
 	Use:   "clear",
 	Short: "Remove all links",
-	Long: `Remove all links. Creates a backup at links.yaml.bak by default.
-Use --force to skip the backup.`,
-	Args: cobra.NoArgs,
+	Long:  "Remove all links from the current profile.",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile, _, err := currentProfile()
 		if err != nil {
 			return err
 		}
 		path := config.ProfileLinksFile(profile)
-		force, _ := cmd.Flags().GetBool("force")
-		if !force {
-			if err := backupFile(path); err != nil {
-				return fmt.Errorf("creating backup: %w", err)
-			}
-		}
 		if err := store.SaveLinks(path, &store.LinkFile{
 			Version: "1",
 			Links:   map[string]store.LinkEntry{},
 		}); err != nil {
 			return err
 		}
-		if force {
-			fmt.Println("cleared all links")
-		} else {
-			fmt.Printf("cleared all links (backup: %s.bak)\n", path)
-		}
+		fmt.Println("cleared all links")
 		return nil
 	},
 }
