@@ -89,7 +89,6 @@ The group name may include variables (e.g. dev/@account/@repo).
 Link keys may reference the group's variables or be concrete.`,
 	Example: `  $ zebro group create morning github jira/PROJ-100
   $ zebro group create dev/@account/@repo github/@account github/@account/@repo`,
-	Args: cobra.MinimumNArgs(1),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -97,6 +96,9 @@ Link keys may reference the group's variables or be concrete.`,
 		return completeLinkKeysAll(cmd, args, toComplete)
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
@@ -192,9 +194,11 @@ var groupListCmd = &cobra.Command{
 var groupViewCmd = &cobra.Command{
 	Use:               "view <name>",
 	Short:             "Show group details",
-	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeGroupNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
@@ -249,9 +253,11 @@ var groupViewCmd = &cobra.Command{
 var groupDeleteCmd = &cobra.Command{
 	Use:               "delete <name>",
 	Short:             "Remove a group",
-	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeGroupNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
@@ -281,7 +287,6 @@ var groupDeleteCmd = &cobra.Command{
 var groupAddCmd = &cobra.Command{
 	Use:   "add <name> <link-key...>",
 	Short: "Add links to a group",
-	Args:  cobra.MinimumNArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeGroupNames(cmd, args, toComplete)
@@ -289,6 +294,12 @@ var groupAddCmd = &cobra.Command{
 		return completeLinkKeysAll(cmd, args, toComplete)
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
+		if len(args) < 2 {
+			return fmt.Errorf("requires at least 1 link key: group add <name> <link-key...>")
+		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
@@ -352,7 +363,6 @@ Removing by position (--at) removes the link at that 1-based index.`,
 	Example: `  $ zebro group remove morning slack
   $ zebro group remove morning github slack
   $ zebro group remove morning --at 2`,
-	Args: cobra.MinimumNArgs(1),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeGroupNames(cmd, args, toComplete)
@@ -379,6 +389,9 @@ Removing by position (--at) removes the link at that 1-based index.`,
 		return names, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		name := args[0]
 		keys := args[1:]
 		at, _ := cmd.Flags().GetInt("at")
