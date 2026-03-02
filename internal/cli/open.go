@@ -32,7 +32,6 @@ func init() {
 		if openLinkFlag != "" {
 			return completeLinkKeys(cmd, args, toComplete)
 		}
-		// No explicit flag: use open_default config to decide completion type
 		_, cfg, err := currentProfile()
 		if err == nil && cfg.OpenDefault == "group" {
 			return completeGroupNames(cmd, args, toComplete)
@@ -62,33 +61,40 @@ based on the open_default config setting (default: link).`,
 		if openGroupFlag != "" && openLinkFlag != "" {
 			return fmt.Errorf("-g/--group and -l/--link are mutually exclusive")
 		}
-		if openGroupFlag != "" {
-			return runOpenGroup(openGroupFlag)
-		}
-		if openLinkFlag != "" {
-			return runOpenLinkKey(openLinkFlag)
-		}
-		if len(args) == 0 {
+
+		// Determine target and type before loading config
+		var target string
+		var asGroup bool
+		switch {
+		case openGroupFlag != "":
+			target, asGroup = openGroupFlag, true
+		case openLinkFlag != "":
+			target, asGroup = openLinkFlag, false
+		case len(args) == 1:
+			target = args[0]
+		default:
 			return cmd.Help()
 		}
-		// No explicit flag: use open_default config
-		_, cfg, err := currentProfile()
+
+		// Load config once for all paths
+		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
 		}
-		if cfg.OpenDefault == "group" {
-			return runOpenGroup(args[0])
+
+		// For positional arg, use open_default
+		if openGroupFlag == "" && openLinkFlag == "" {
+			asGroup = cfg.OpenDefault == "group"
 		}
-		return runOpenLinkKey(args[0])
+
+		if asGroup {
+			return runOpenGroup(target, profile, cfg)
+		}
+		return runOpenLinkKey(target, profile, cfg)
 	},
 }
 
-func runOpenLinkKey(key string) error {
-	profile, cfg, err := currentProfile()
-	if err != nil {
-		return err
-	}
-
+func runOpenLinkKey(key, profile string, cfg *config.GlobalConfig) error {
 	links, err := store.ListLinks(config.ProfileLinksFile(profile))
 	if err != nil {
 		return err
@@ -103,12 +109,7 @@ func runOpenLinkKey(key string) error {
 	return openURLWithConfig(cfg, result.URL)
 }
 
-func runOpenGroup(input string) error {
-	profile, cfg, err := currentProfile()
-	if err != nil {
-		return err
-	}
-
+func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 	groups, err := store.ListGroups(config.ProfileGroupsFile(profile))
 	if err != nil {
 		return err

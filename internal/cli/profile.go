@@ -16,7 +16,7 @@ import (
 var profileCmd = &cobra.Command{
 	Use:   "profile",
 	Short: "Manage profiles",
-	Long:  "Manage profiles — isolated sets of links, aliases, and groups.",
+	Long:  "Manage profiles — isolated sets of links and groups.",
 	Example: `  $ zebro profile view          # show active profile
   $ zebro profile list          # list all profiles
   $ zebro profile create work   # create a new profile
@@ -34,7 +34,7 @@ func init() {
 		profileBackupCmd,
 	)
 	profileCreateCmd.Flags().StringP("description", "d", "", "Profile description")
-	profileCreateCmd.Flags().StringP("source", "s", "", "Copy links, aliases, and groups from an existing profile")
+	profileCreateCmd.Flags().StringP("source", "s", "", "Copy links and groups from an existing profile")
 
 	defaultHelp := profileCmd.HelpFunc()
 	profileCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
@@ -141,10 +141,10 @@ var profileCreateCmd = &cobra.Command{
 	},
 }
 
-// copyProfileData copies links, aliases, and groups (not config) from src to dst profile.
+// copyProfileData copies links and groups (not config) from src to dst profile.
 func copyProfileData(src, dst string) error {
 	return copyFilesBetweenDirs(config.ProfileDir(src), config.ProfileDir(dst),
-		[]string{"links.yaml", "aliases.yaml", "groups.yaml"})
+		[]string{"links.yaml", "groups.yaml"})
 }
 
 var profileListCmd = &cobra.Command{
@@ -191,7 +191,7 @@ var profileViewCmd = &cobra.Command{
 	Long:              "Show details of a profile. Without a name, shows the currently active profile.",
 	Example: `  $ zebro profile view           # show active profile
   $ zebro profile view work      # show specific profile
-  $ zebro profile view -d        # show with full link/alias/group lists
+  $ zebro profile view -d        # show with full link/group lists
   $ zebro profile view -s        # show summary (overrides profile_view_mode=detail)`,
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeProfileNames,
