@@ -12,12 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var historyTypes = []string{"link", "group", "url"}
-
 // allHistoryEntries loads and merges history from all type-specific files, sorted oldest-first.
 func allHistoryEntries(profile string) ([]store.HistoryEntry, error) {
 	var all []store.HistoryEntry
-	for _, typ := range historyTypes {
+	for _, typ := range store.HistoryTypes {
 		entries, err := store.LoadHistory(config.ProfileHistoryFile(profile, typ))
 		if err != nil {
 			return nil, err
@@ -61,6 +59,20 @@ var historyListCmd = &cobra.Command{
 		linkOnly, _ := cmd.Flags().GetBool("link")
 		groupOnly, _ := cmd.Flags().GetBool("group")
 		urlOnly, _ := cmd.Flags().GetBool("url")
+
+		flagCount := 0
+		if linkOnly {
+			flagCount++
+		}
+		if groupOnly {
+			flagCount++
+		}
+		if urlOnly {
+			flagCount++
+		}
+		if flagCount > 1 {
+			return fmt.Errorf("-l/--link, -g/--group, and -u/--url are mutually exclusive")
+		}
 
 		var entries []store.HistoryEntry
 		switch {
@@ -178,7 +190,7 @@ var historyStatsCmd = &cobra.Command{
 
 		fmt.Printf("total entries: %d\n", len(entries))
 		fmt.Printf("by type:\n")
-		for _, t := range historyTypes {
+		for _, t := range store.HistoryTypes {
 			if c, ok := typeCounts[t]; ok {
 				fmt.Printf("  %-8s %d\n", t+":", c)
 			}
@@ -208,7 +220,7 @@ var historyClearCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		for _, typ := range historyTypes {
+		for _, typ := range store.HistoryTypes {
 			if err := store.SaveHistory(config.ProfileHistoryFile(profile, typ), nil); err != nil {
 				return err
 			}
@@ -233,7 +245,7 @@ Always applies history_size limit if configured.`,
 		}
 
 		totalBefore, totalAfter := 0, 0
-		for _, typ := range historyTypes {
+		for _, typ := range store.HistoryTypes {
 			path := config.ProfileHistoryFile(profile, typ)
 			entries, err := store.LoadHistory(path)
 			if err != nil {

@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// HistoryTypes lists the valid entry types; each maps to a separate history file.
+var HistoryTypes = []string{"link", "group", "url"}
+
+// lastEntryBufSize is the maximum bytes read from the end of the file to find the last entry.
+const lastEntryBufSize = 4096
+
 // HistoryEntry records a single open event.
 type HistoryEntry struct {
 	Time   time.Time `json:"time"`
@@ -166,8 +172,8 @@ func readLastEntry(path string) (*HistoryEntry, error) {
 		return nil, nil
 	}
 
-	// Read at most 4 KB from the end — enough for any single JSON entry
-	bufSize := int64(4096)
+	// Read at most lastEntryBufSize bytes from the end — enough for any single JSON entry
+	bufSize := int64(lastEntryBufSize)
 	if fi.Size() < bufSize {
 		bufSize = fi.Size()
 	}

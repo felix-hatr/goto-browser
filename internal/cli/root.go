@@ -189,6 +189,17 @@ func resolveLinkURL(ref string, links []store.Link, variablePrefix string) strin
 	return ""
 }
 
+// recentSet loads MRU targets from a history file and returns them as a set.
+// Returns the ordered recent slice and a set for O(1) membership tests.
+func recentSet(historyPath string) ([]string, map[string]bool) {
+	recent := store.RecentTargets(historyPath)
+	set := make(map[string]bool, len(recent))
+	for _, t := range recent {
+		set[t] = true
+	}
+	return recent, set
+}
+
 // backupFile copies src to src+".bak". If src does not exist, it is a no-op.
 func backupFile(path string) error {
 	data, err := os.ReadFile(path)

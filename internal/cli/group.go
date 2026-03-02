@@ -147,16 +147,12 @@ If the group already exists, it is replaced.`,
 		posName, params := store.NormalizeToPositional(normName)
 		nameToPos := store.NameToPos(params)
 
-		links, err := store.ListLinks(config.ProfileLinksFile(profile))
-		if err != nil {
-			return err
-		}
 		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
 		if err != nil {
 			return err
 		}
 
-		posURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, links)
+		posURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, store.LinksFromFile(lf))
 		if err != nil {
 			return err
 		}
@@ -359,17 +355,13 @@ By default entries are appended to the end. Use --at to insert at a specific
 			return fmt.Errorf("group %q not found", name)
 		}
 
-		links, err := store.ListLinks(config.ProfileLinksFile(profile))
-		if err != nil {
-			return err
-		}
 		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
 		if err != nil {
 			return err
 		}
 
 		nameToPos := store.NameToPos(entry.Params)
-		newURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, links)
+		newURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, store.LinksFromFile(lf))
 		if err != nil {
 			return err
 		}
@@ -592,17 +584,12 @@ func completeLinkKeysAll(_ *cobra.Command, _ []string, _ string) ([]string, cobr
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	recent := store.RecentTargets(config.ProfileHistoryFile(profile, "link"))
-	recentSet := make(map[string]bool, len(recent))
-	for _, t := range recent {
-		recentSet[t] = true
-	}
-
+	recent, rset := recentSet(config.ProfileHistoryFile(profile, "link"))
 	completions := make([]string, 0, len(recent)+len(links))
 	completions = append(completions, recent...)
 	for _, l := range links {
 		key := displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay)
-		if !recentSet[key] {
+		if !rset[key] {
 			completions = append(completions, key)
 		}
 	}
@@ -710,17 +697,12 @@ func completeGroupNamesAll(_ *cobra.Command, _ []string, _ string) ([]string, co
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	recent := store.RecentTargets(config.ProfileHistoryFile(profile, "group"))
-	recentSet := make(map[string]bool, len(recent))
-	for _, t := range recent {
-		recentSet[t] = true
-	}
-
+	recent, rset := recentSet(config.ProfileHistoryFile(profile, "group"))
 	completions := make([]string, 0, len(recent)+len(groups))
 	completions = append(completions, recent...)
 	for _, g := range groups {
 		name := displayVar(g.Name, cfg.VariablePrefix, g.Params, cfg.VariableDisplay)
-		if !recentSet[name] {
+		if !rset[name] {
 			completions = append(completions, name)
 		}
 	}
