@@ -25,7 +25,7 @@ make install
 make completions   # → completions/zebro.{bash,zsh,fish}
 ```
 
-Always use `-buildvcs=false` — the repo has no git remote configured.
+Always use `-buildvcs=false` — avoids VCS metadata embedding issues in this environment.
 
 ## Project Structure
 
@@ -128,4 +128,3 @@ All features implemented and committed:
 - doctor for diagnostics
 - shell completion (bash/zsh/fish)
 
-**Pending for release**: merge feat/v1.1.0 → main, GitHub remote setup, Homebrew tap repo creation, GoReleaser run.
