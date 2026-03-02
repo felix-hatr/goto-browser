@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/felix-hatr/goto-browser/internal/browser"
 	"github.com/felix-hatr/goto-browser/internal/config"
@@ -16,14 +17,20 @@ var openDryRun bool
 var openBrowserOverride string
 var openGroupFlag string
 var openLinkFlag string
+var openURLFlag string
 
 func init() {
+	openCmd.Flags().SortFlags = false
+	openCmd.Flags().StringVarP(&openLinkFlag, "link", "l", "", "Open a link by key")
+	openCmd.Flags().StringVarP(&openGroupFlag, "group", "g", "", "Open a group by name")
+	openCmd.Flags().StringVarP(&openURLFlag, "url", "u", "", "Open a direct URL")
 	openCmd.Flags().BoolVarP(&openNewWindow, "new-window", "n", false, "Open in a new window (overrides config open_mode)")
 	openCmd.Flags().BoolVarP(&openNewTab, "new-tab", "t", false, "Open in a new tab (overrides config open_mode)")
-	openCmd.Flags().BoolVar(&openDryRun, "dry-run", false, "Print URL(s) without opening the browser")
 	openCmd.Flags().StringVarP(&openBrowserOverride, "browser", "b", "", "Browser to use for this command")
-	openCmd.Flags().StringVarP(&openGroupFlag, "group", "g", "", "Open a group by name")
-	openCmd.Flags().StringVarP(&openLinkFlag, "link", "l", "", "Open a link by key")
+	openCmd.Flags().BoolVar(&openDryRun, "dry-run", false, "Print URL(s) without opening the browser")
+
+	openCmd.RegisterFlagCompletionFunc("link", completeLinkKeysFlag)
+	openCmd.RegisterFlagCompletionFunc("group", completeGroupNamesFlag)
 
 	openCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if openGroupFlag != "" {
@@ -40,40 +47,48 @@ func init() {
 	}
 }
 
+// completeLinkKeysFlag completes link keys for flag values (no args guard).
+func completeLinkKeysFlag(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	return completeLinkKeysAll(nil, nil, "")
+}
+
+// completeGroupNamesFlag completes group names for flag values (no args guard).
+func completeGroupNamesFlag(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	return completeGroupNamesAll(nil, nil, "")
+}
+
 var openCmd = &cobra.Command{
 	Use:   "open [key]",
 	Short: "Open a link or group in the browser",
 	Long: `Open a link key or group in the browser.
 
-Use -l/--link to open a link, or -g/--group to open a group.
-Without a flag, the positional argument is treated as a link or group
+Use -l/--link to open a link, -g/--group to open a group, or -u/--url to open a direct URL.
+Without a flag, the positional argument is treated as a link, group, or URL
 based on the open_default config setting (default: link).`,
 	Example: `  $ zebro open github/octocat/hello-world
   $ zebro open jira/PROJ-123
   $ zebro open -g morning
   $ zebro open -l github/octocat/hello-world
+  $ zebro open -u https://example.com
   $ zebro open jira/PROJ-123 --dry-run`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if openNewWindow && openNewTab {
 			return fmt.Errorf("--new-window and --new-tab are mutually exclusive")
 		}
-		if openGroupFlag != "" && openLinkFlag != "" {
-			return fmt.Errorf("-g/--group and -l/--link are mutually exclusive")
+		// Mutual exclusion among -g, -l, -u
+		flagCount := 0
+		if openGroupFlag != "" {
+			flagCount++
 		}
-
-		// Determine target and type before loading config
-		var target string
-		var asGroup bool
-		switch {
-		case openGroupFlag != "":
-			target, asGroup = openGroupFlag, true
-		case openLinkFlag != "":
-			target, asGroup = openLinkFlag, false
-		case len(args) == 1:
-			target = args[0]
-		default:
-			return cmd.Help()
+		if openLinkFlag != "" {
+			flagCount++
+		}
+		if openURLFlag != "" {
+			flagCount++
+		}
+		if flagCount > 1 {
+			return fmt.Errorf("-g/--group, -l/--link, and -u/--url are mutually exclusive")
 		}
 
 		// Load config once for all paths
@@ -82,15 +97,48 @@ based on the open_default config setting (default: link).`,
 			return err
 		}
 
-		// For positional arg, use open_default
-		if openGroupFlag == "" && openLinkFlag == "" {
-			asGroup = cfg.OpenDefault == "group"
+		switch {
+		case openURLFlag != "":
+			if err := openURLWithConfig(cfg, openURLFlag); err != nil {
+				return err
+			}
+			if !openDryRun {
+				recordHistory(profile, cfg, store.HistoryEntry{
+					Time:   time.Now().UTC(),
+					Type:   "url",
+					Target: openURLFlag,
+					URLs:   []string{openURLFlag},
+				})
+			}
+			return nil
+		case openGroupFlag != "":
+			return runOpenGroup(openGroupFlag, profile, cfg)
+		case openLinkFlag != "":
+			return runOpenLinkKey(openLinkFlag, profile, cfg)
+		case len(args) == 1:
+			target := args[0]
+			switch cfg.OpenDefault {
+			case "group":
+				return runOpenGroup(target, profile, cfg)
+			case "url":
+				if err := openURLWithConfig(cfg, target); err != nil {
+					return err
+				}
+				if !openDryRun {
+					recordHistory(profile, cfg, store.HistoryEntry{
+						Time:   time.Now().UTC(),
+						Type:   "url",
+						Target: target,
+						URLs:   []string{target},
+					})
+				}
+				return nil
+			default:
+				return runOpenLinkKey(target, profile, cfg)
+			}
+		default:
+			return cmd.Help()
 		}
-
-		if asGroup {
-			return runOpenGroup(target, profile, cfg)
-		}
-		return runOpenLinkKey(target, profile, cfg)
 	},
 }
 
@@ -106,7 +154,18 @@ func runOpenLinkKey(key, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	return openURLWithConfig(cfg, result.URL)
+	if err := openURLWithConfig(cfg, result.URL); err != nil {
+		return err
+	}
+	if !openDryRun {
+		recordHistory(profile, cfg, store.HistoryEntry{
+			Time:   time.Now().UTC(),
+			Type:   "link",
+			Target: key,
+			URLs:   []string{result.URL},
+		})
+	}
+	return nil
 }
 
 func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
@@ -122,8 +181,8 @@ func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	if len(group.Links) == 0 {
-		return fmt.Errorf("group %q has no links", group.Name)
+	if len(group.URLs) == 0 {
+		return fmt.Errorf("group %q has no URLs", group.Name)
 	}
 
 	links, err := store.ListLinks(config.ProfileLinksFile(profile))
@@ -131,7 +190,7 @@ func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	urls, errs := r.ResolveGroupLinks(group.Links, groupVars, links)
+	urls, errs := r.ResolveGroupLinks(group.URLs, groupVars, links)
 	if len(errs) > 0 {
 		for _, e := range errs {
 			fmt.Printf("warning: %v\n", e)
@@ -158,9 +217,16 @@ func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	return b.OpenURLs(urls, browser.OpenOptions{
-		NewWindow: true,
+	if err := b.OpenURLs(urls, browser.OpenOptions{NewWindow: true}); err != nil {
+		return err
+	}
+	recordHistory(profile, cfg, store.HistoryEntry{
+		Time:   time.Now().UTC(),
+		Type:   "group",
+		Target: input,
+		URLs:   urls,
 	})
+	return nil
 }
 
 func openURLWithConfig(cfg *config.GlobalConfig, url string) error {
@@ -189,4 +255,15 @@ func openURLWithConfig(cfg *config.GlobalConfig, url string) error {
 	}
 
 	return b.OpenURL(url, opts)
+}
+
+// recordHistory appends an entry to the type-specific history file.
+// Errors are silently ignored to not disrupt the open operation.
+func recordHistory(profile string, cfg *config.GlobalConfig, entry store.HistoryEntry) {
+	_ = store.AppendHistory(
+		config.ProfileHistoryFile(profile, entry.Type),
+		entry,
+		cfg.HistorySize,
+		cfg.HistoryDedup,
+	)
 }

@@ -18,7 +18,7 @@ var linkCmd = &cobra.Command{
 }
 
 func init() {
-	linkCmd.AddCommand(linkListCmd, linkViewCmd, linkCreateCmd, linkDeleteCmd, linkClearCmd)
+	linkCmd.AddCommand(linkListCmd, linkViewCmd, linkCreateCmd, linkDeleteCmd, linkClearCmd, linkRenameCmd)
 	linkCreateCmd.Flags().StringP("description", "d", "", "Link description")
 
 	defaultHelp := linkCmd.HelpFunc()
@@ -41,6 +41,7 @@ func init() {
 		fmt.Fprintln(w, "  list:\tList all links")
 		fmt.Fprintln(w, "  view:\tShow link details")
 		fmt.Fprintln(w, "  create:\tAdd or update a link")
+		fmt.Fprintln(w, "  rename:\tRename a link key")
 		fmt.Fprintln(w, "  delete:\tRemove a link")
 		fmt.Fprintln(w, "  clear:\tRemove all links")
 		fmt.Fprintln(w, "")
@@ -305,25 +306,64 @@ var linkClearCmd = &cobra.Command{
 	},
 }
 
+var linkRenameCmd = &cobra.Command{
+	Use:               "rename <old-key> <new-key>",
+	Short:             "Rename a link key",
+	Args:              cobra.MaximumNArgs(2),
+	ValidArgsFunction: completeLinkKeys,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return cmd.Help()
+		}
+		profile, cfg, err := currentProfile()
+		if err != nil {
+			return err
+		}
+
+		normOld := store.NormalizeVars(args[0], cfg.VariablePrefix)
+		oldPosKey, oldParams := store.NormalizeToPositional(normOld)
+
+		normNew := store.NormalizeVars(args[1], cfg.VariablePrefix)
+		newPosKey, newParams := store.NormalizeToPositional(normNew)
+
+		if len(oldParams) != len(newParams) {
+			return fmt.Errorf("variable count mismatch: old key has %d variable(s), new key has %d", len(oldParams), len(newParams))
+		}
+
+		linksPath := config.ProfileLinksFile(profile)
+		lf, err := store.LoadLinks(linksPath)
+		if err != nil {
+			return err
+		}
+
+		if _, ok := lf.Links[oldPosKey]; !ok {
+			return fmt.Errorf("link %q not found", args[0])
+		}
+		if _, ok := lf.Links[newPosKey]; ok {
+			return fmt.Errorf("link %q already exists", args[1])
+		}
+
+		entry := lf.Links[oldPosKey]
+		// Replace params with new key's params (same count, new names)
+		entry.Params = newParams
+		lf.Links[newPosKey] = entry
+		delete(lf.Links, oldPosKey)
+
+		if err := store.SaveLinks(linksPath, lf); err != nil {
+			return err
+		}
+
+		displayOld := displayVar(oldPosKey, cfg.VariablePrefix, oldParams, cfg.VariableDisplay)
+		displayNew := displayVar(newPosKey, cfg.VariablePrefix, newParams, cfg.VariableDisplay)
+		fmt.Printf("renamed link %q → %q\n", displayOld, displayNew)
+		return nil
+	},
+}
+
 // completeLinkKeys returns link keys for tab completion.
 func completeLinkKeys(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-
-	profile, cfg, err := currentProfile()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	links, err := store.ListLinks(config.ProfileLinksFile(profile))
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	completions := make([]string, len(links))
-	for i, l := range links {
-		completions[i] = displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay)
-	}
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	return completeLinkKeysAll(cmd, args, toComplete)
 }

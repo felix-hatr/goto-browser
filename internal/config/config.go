@@ -23,6 +23,8 @@ type GlobalConfig struct {
 	OpenDefault       string `yaml:"open_default"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode"`
 	ProfileViewMode   string `yaml:"profile_view_mode"`
+	HistorySize  int    `yaml:"history_size,omitempty"`
+	HistoryDedup string `yaml:"history_dedup,omitempty"`
 
 	// Runtime-only: loaded from .current_profile, not written to config.yaml.
 	ActiveProfile string `yaml:"-"`
@@ -40,6 +42,8 @@ type ProfileConfig struct {
 	OpenDefault       string `yaml:"open_default,omitempty"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode,omitempty"`
 	ProfileViewMode   string `yaml:"profile_view_mode,omitempty"`
+	HistorySize  int    `yaml:"history_size,omitempty"`
+	HistoryDedup string `yaml:"history_dedup,omitempty"`
 }
 
 // applyConfigDefaults fills in zero-value fields with their defaults.
@@ -61,6 +65,9 @@ func applyConfigDefaults(cfg *GlobalConfig) {
 	}
 	if cfg.ProfileViewMode == "" {
 		cfg.ProfileViewMode = "summary"
+	}
+	if cfg.HistorySize == 0 {
+		cfg.HistorySize = 10000
 	}
 }
 
@@ -139,6 +146,12 @@ func applyProfileOverrides(global *GlobalConfig, profile *ProfileConfig) {
 	}
 	if profile.ProfileViewMode != "" {
 		global.ProfileViewMode = profile.ProfileViewMode
+	}
+	if profile.HistorySize != 0 {
+		global.HistorySize = profile.HistorySize
+	}
+	if profile.HistoryDedup != "" {
+		global.HistoryDedup = profile.HistoryDedup
 	}
 }
 
@@ -322,8 +335,15 @@ func (c *ProfileConfig) Get(key string) (string, error) {
 		return c.ProfileDeleteMode, nil
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
+	case "history_size":
+		if c.HistorySize == 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", c.HistorySize), nil
+	case "history_dedup":
+		return c.HistoryDedup, nil
 	default:
-		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 }
 
@@ -350,8 +370,8 @@ func (c *ProfileConfig) Set(key, value string) error {
 		}
 		c.OpenMode = value
 	case "open_default":
-		if value != "link" && value != "group" {
-			return fmt.Errorf("open_default must be 'link' or 'group'")
+		if value != "link" && value != "group" && value != "url" {
+			return fmt.Errorf("open_default must be 'link', 'group', or 'url'")
 		}
 		c.OpenDefault = value
 	case "profile_delete_mode":
@@ -364,8 +384,19 @@ func (c *ProfileConfig) Set(key, value string) error {
 			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
 		}
 		c.ProfileViewMode = value
+	case "history_size":
+		n, err := parseHistorySize(value)
+		if err != nil {
+			return err
+		}
+		c.HistorySize = n
+	case "history_dedup":
+		if value != "none" && value != "consecutive" && value != "all" {
+			return fmt.Errorf("history_dedup must be 'none', 'consecutive', or 'all'")
+		}
+		c.HistoryDedup = value
 	default:
-		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 	return nil
 }
@@ -387,8 +418,15 @@ func (c *GlobalConfig) Get(key string) (string, error) {
 		return c.ProfileDeleteMode, nil
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
+	case "history_size":
+		if c.HistorySize == 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", c.HistorySize), nil
+	case "history_dedup":
+		return c.HistoryDedup, nil
 	default:
-		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 }
 
@@ -413,8 +451,8 @@ func (c *GlobalConfig) Set(key, value string) error {
 		}
 		c.OpenMode = value
 	case "open_default":
-		if value != "link" && value != "group" {
-			return fmt.Errorf("open_default must be 'link' or 'group'")
+		if value != "link" && value != "group" && value != "url" {
+			return fmt.Errorf("open_default must be 'link', 'group', or 'url'")
 		}
 		c.OpenDefault = value
 	case "profile_delete_mode":
@@ -427,10 +465,34 @@ func (c *GlobalConfig) Set(key, value string) error {
 			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
 		}
 		c.ProfileViewMode = value
+	case "history_size":
+		n, err := parseHistorySize(value)
+		if err != nil {
+			return err
+		}
+		c.HistorySize = n
+	case "history_dedup":
+		if value != "none" && value != "consecutive" && value != "all" {
+			return fmt.Errorf("history_dedup must be 'none', 'consecutive', or 'all'")
+		}
+		c.HistoryDedup = value
 	default:
-		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 	return nil
+}
+
+// parseHistorySize parses a history_size config value.
+// -1 = unlimited, any positive integer = max entries.
+func parseHistorySize(value string) (int, error) {
+	n := 0
+	if _, err := fmt.Sscanf(value, "%d", &n); err != nil {
+		return 0, fmt.Errorf("history_size must be a positive integer or -1 (unlimited) (got %q)", value)
+	}
+	if n == 0 || n < -1 {
+		return 0, fmt.Errorf("history_size must be a positive integer or -1 (unlimited) (got %d)", n)
+	}
+	return n, nil
 }
 
 // validateVariablePrefix checks that the prefix is a single, safe character.

@@ -12,7 +12,7 @@ import (
 type GroupEntry struct {
 	Description string   `yaml:"description,omitempty"`
 	Params      []string `yaml:"params,omitempty"`
-	Links       []string `yaml:"links"`
+	URLs        []string `yaml:"urls"`
 }
 
 // GroupFile is the on-disk format for groups.yaml.
@@ -26,7 +26,7 @@ type Group struct {
 	Name        string
 	Description string
 	Params      []string
-	Links       []string
+	URLs        []string
 }
 
 // LoadGroups reads the groups file for a profile.
@@ -67,7 +67,7 @@ func AddGroup(path string, group Group) error {
 	gf.Groups[group.Name] = GroupEntry{
 		Description: group.Description,
 		Params:      group.Params,
-		Links:       group.Links,
+		URLs:        group.URLs,
 	}
 	return SaveGroups(path, gf)
 }
@@ -82,7 +82,7 @@ func GetGroup(path, name string) (*Group, error) {
 	if !ok {
 		return nil, fmt.Errorf("group %q not found", name)
 	}
-	return &Group{Name: name, Description: entry.Description, Params: entry.Params, Links: entry.Links}, nil
+	return &Group{Name: name, Description: entry.Description, Params: entry.Params, URLs: entry.URLs}, nil
 }
 
 // RemoveGroup deletes a group by name.
@@ -106,15 +106,15 @@ func ListGroups(path string) ([]Group, error) {
 	}
 	groups := make([]Group, 0, len(gf.Groups))
 	for name, entry := range gf.Groups {
-		groups = append(groups, Group{Name: name, Description: entry.Description, Params: entry.Params, Links: entry.Links})
+		groups = append(groups, Group{Name: name, Description: entry.Description, Params: entry.Params, URLs: entry.URLs})
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
 	return groups, nil
 }
 
-// InsertIntoGroup adds link keys to an existing group at the given position (1-based).
+// InsertIntoGroup adds URL templates to an existing group at the given position (1-based).
 // at=0 means append to end.
-func InsertIntoGroup(path, name string, linkKeys []string, at int) error {
+func InsertIntoGroup(path, name string, urlTemplates []string, at int) error {
 	gf, err := LoadGroups(path)
 	if err != nil {
 		return err
@@ -125,15 +125,15 @@ func InsertIntoGroup(path, name string, linkKeys []string, at int) error {
 		return fmt.Errorf("group %q not found", name)
 	}
 
-	if at <= 0 || at > len(entry.Links) {
-		entry.Links = append(entry.Links, linkKeys...)
+	if at <= 0 || at > len(entry.URLs) {
+		entry.URLs = append(entry.URLs, urlTemplates...)
 	} else {
 		idx := at - 1
-		links := make([]string, 0, len(entry.Links)+len(linkKeys))
-		links = append(links, entry.Links[:idx]...)
-		links = append(links, linkKeys...)
-		links = append(links, entry.Links[idx:]...)
-		entry.Links = links
+		urls := make([]string, 0, len(entry.URLs)+len(urlTemplates))
+		urls = append(urls, entry.URLs[:idx]...)
+		urls = append(urls, urlTemplates...)
+		urls = append(urls, entry.URLs[idx:]...)
+		entry.URLs = urls
 	}
 
 	gf.Groups[name] = entry
