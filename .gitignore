@@ -16,3 +16,4 @@ coverage.html
 
 # GoReleaser
 /dist/
+completions/
