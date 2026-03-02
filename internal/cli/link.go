@@ -353,38 +353,9 @@ var linkRenameCmd = &cobra.Command{
 			return err
 		}
 
-		// Update group references (oldPosKey → newPosKey)
-		groupsPath := config.ProfileGroupsFile(profile)
-		gf, err := store.LoadGroups(groupsPath)
-		if err != nil {
-			return err
-		}
-		updatedGroups := 0
-		for posName, groupEntry := range gf.Groups {
-			changed := false
-			for i, l := range groupEntry.Links {
-				if l == oldPosKey {
-					groupEntry.Links[i] = newPosKey
-					changed = true
-				}
-			}
-			if changed {
-				gf.Groups[posName] = groupEntry
-				updatedGroups++
-			}
-		}
-		if updatedGroups > 0 {
-			if err := store.SaveGroups(groupsPath, gf); err != nil {
-				return err
-			}
-		}
-
 		displayOld := displayVar(oldPosKey, cfg.VariablePrefix, oldParams, cfg.VariableDisplay)
 		displayNew := displayVar(newPosKey, cfg.VariablePrefix, newParams, cfg.VariableDisplay)
 		fmt.Printf("renamed link %q → %q\n", displayOld, displayNew)
-		if updatedGroups > 0 {
-			fmt.Printf("updated %d group reference(s)\n", updatedGroups)
-		}
 		return nil
 	},
 }

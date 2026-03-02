@@ -207,7 +207,7 @@ func TestResolve_PositionalStorage(t *testing.T) {
 func TestMatchGroup_Concrete(t *testing.T) {
 	r := New("@")
 	groups := []store.Group{
-		{Name: "morning", Links: []string{"github", "google"}},
+		{Name: "morning", URLs: []string{"https://github.com", "https://google.com"}},
 	}
 	g, vars, err := r.MatchGroup("morning", groups)
 	if err != nil {
@@ -227,7 +227,7 @@ func TestMatchGroup_WithVariables(t *testing.T) {
 	normName := store.NormalizeVars("dev/@account/@repo", "@")
 	posName, params := store.NormalizeToPositional(normName)
 	groups := []store.Group{
-		{Name: posName, Params: params, Links: []string{}},
+		{Name: posName, Params: params, URLs: []string{}},
 	}
 
 	g, vars, err := r.MatchGroup("dev/myorg/myrepo", groups)

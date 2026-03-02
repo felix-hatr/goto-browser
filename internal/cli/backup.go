@@ -321,14 +321,9 @@ var profileBackupViewCmd = &cobra.Command{
 			fmt.Fprintf(w, "groups (%d):\t\n", len(groups))
 			for _, g := range groups {
 				fmt.Fprintf(w, "  %s:\t\n", store.DenormalizeVars(g.Name, prefix))
-				for _, ref := range g.Links {
-					displayKey := store.DenormalizeVars(ref, prefix)
-					url := resolveLinkURL(ref, links, prefix)
-					if url != "" {
-						fmt.Fprintf(w, "    - %s:\t%s\n", displayKey, url)
-					} else {
-						fmt.Fprintf(w, "    - %s\t\n", displayKey)
-					}
+				for _, u := range g.URLs {
+					displayURL := store.DenormalizeParams(u, prefix, g.Params)
+					fmt.Fprintf(w, "    - %s\t\n", displayURL)
 				}
 			}
 		} else {

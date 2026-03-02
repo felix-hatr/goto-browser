@@ -2,11 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/felix-hatr/goto-browser/internal/browser"
 	"github.com/felix-hatr/goto-browser/internal/config"
-	"github.com/felix-hatr/goto-browser/internal/resolver"
 	"github.com/felix-hatr/goto-browser/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -51,7 +49,7 @@ var doctorCmd = &cobra.Command{
 		if profileExists {
 			// 3. Links file valid
 			linksPath := config.ProfileLinksFile(profileName)
-			linkList, err := store.ListLinks(linksPath)
+			_, err := store.ListLinks(linksPath)
 			check(err == nil, "links.yaml syntax valid", errStr(err))
 
 			// 4. Groups file valid
@@ -59,33 +57,29 @@ var doctorCmd = &cobra.Command{
 			groups, err := store.LoadGroups(groupsPath)
 			check(err == nil, "groups.yaml syntax valid", errStr(err))
 
-			// 5b. Group link references
+			// 5. Group URL entries
 			if groups != nil {
-				r := resolver.New(cfg.VariablePrefix)
-
 				for posName, entry := range groups.Groups {
 					displayName := store.DenormalizeParams(posName, cfg.VariablePrefix, entry.Params)
-					// Skip variable groups (named or positional) — validated at open time
+					// Skip variable groups — validated at open time
 					if len(entry.Params) > 0 || store.HasVars(posName) {
 						check(true, fmt.Sprintf("group %q: variable group (validated at open time)", displayName), "")
 						continue
 					}
-					var missing []string
-					for _, ref := range entry.Links {
-						if strings.Contains(ref, "://") {
-							continue // direct URL, always valid
-						}
-						if _, err := r.Resolve(ref, linkList); err != nil {
-							missing = append(missing, store.DenormalizeVars(ref, cfg.VariablePrefix))
+					// Concrete groups store URL templates — check for empty entries
+					var emptyPositions []int
+					for i, u := range entry.URLs {
+						if u == "" {
+							emptyPositions = append(emptyPositions, i+1)
 						}
 					}
-					if len(missing) > 0 {
+					if len(emptyPositions) > 0 {
 						check(false,
-							fmt.Sprintf("group %q: all links resolvable", displayName),
-							fmt.Sprintf("unresolvable refs: %s", strings.Join(missing, ", ")),
+							fmt.Sprintf("group %q: no empty URL entries", displayName),
+							fmt.Sprintf("empty entries at positions: %v", emptyPositions),
 						)
 					} else {
-						check(true, fmt.Sprintf("group %q: all links resolvable", displayName), "")
+						check(true, fmt.Sprintf("group %q: all URL entries valid", displayName), "")
 					}
 				}
 			}

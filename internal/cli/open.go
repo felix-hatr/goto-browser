@@ -159,8 +159,8 @@ func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	if len(group.Links) == 0 {
-		return fmt.Errorf("group %q has no links", group.Name)
+	if len(group.URLs) == 0 {
+		return fmt.Errorf("group %q has no URLs", group.Name)
 	}
 
 	links, err := store.ListLinks(config.ProfileLinksFile(profile))
@@ -168,7 +168,7 @@ func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	urls, errs := r.ResolveGroupLinks(group.Links, groupVars, links)
+	urls, errs := r.ResolveGroupLinks(group.URLs, groupVars, links)
 	if len(errs) > 0 {
 		for _, e := range errs {
 			fmt.Printf("warning: %v\n", e)

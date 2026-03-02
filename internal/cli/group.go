@@ -22,8 +22,10 @@ func init() {
 	groupCmd.AddCommand(groupListCmd, groupViewCmd, groupCreateCmd, groupDeleteCmd, groupAddCmd, groupRemoveCmd, groupClearCmd, groupRenameCmd)
 	groupCreateCmd.Flags().StringP("description", "d", "", "Group description")
 	groupCreateCmd.Flags().StringArrayP("link", "l", nil, "Link key to add (repeatable)")
+	groupCreateCmd.Flags().StringArrayP("url", "u", nil, "Direct URL to add (repeatable)")
 	groupAddCmd.Flags().Int("at", 0, "Position to insert (1-based, default: append to end)")
 	groupAddCmd.Flags().StringArrayP("link", "l", nil, "Link key to add (repeatable)")
+	groupAddCmd.Flags().StringArrayP("url", "u", nil, "Direct URL to add (repeatable)")
 	groupRemoveCmd.Flags().Int("at", 0, "Position to remove (1-based)")
 	groupRemoveCmd.Flags().StringArrayP("link", "l", nil, "Link key to remove (repeatable)")
 
@@ -43,9 +45,9 @@ func init() {
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		names := make([]string, len(group.Links))
-		for i, l := range group.Links {
-			names[i] = displayVar(l, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
+		names := make([]string, len(group.URLs))
+		for i, u := range group.URLs {
+			names[i] = store.DenormalizeParams(u, cfg.VariablePrefix, group.Params)
 		}
 		return names, cobra.ShellCompDirectiveNoFileComp
 	})
@@ -72,8 +74,8 @@ func init() {
 		fmt.Fprintln(w, "  create:\tCreate a new group")
 		fmt.Fprintln(w, "  rename:\tRename a group")
 		fmt.Fprintln(w, "  delete:\tRemove a group")
-		fmt.Fprintln(w, "  add:\tAdd links to a group")
-		fmt.Fprintln(w, "  remove:\tRemove links from a group")
+		fmt.Fprintln(w, "  add:\tAdd links or URLs to a group")
+		fmt.Fprintln(w, "  remove:\tRemove entries from a group")
 		fmt.Fprintln(w, "  clear:\tRemove all groups")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "FLAGS")
@@ -81,7 +83,7 @@ func init() {
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "VARIABLES")
 		fmt.Fprintf(w, "  Group names can include variable placeholders — %[1]sname or %[1]s1, %[1]s2 style.\n", p)
-		fmt.Fprintf(w, "  Variables in the group name map to its link keys by position.\n")
+		fmt.Fprintf(w, "  Variables in the group name map to its URLs by position.\n")
 		fmt.Fprintln(w, "")
 		fmt.Fprintf(w, "  Concrete group:\n")
 		fmt.Fprintf(w, "    zebro group create morning -l github -l jira/PROJ-100\n")
@@ -90,12 +92,16 @@ func init() {
 		fmt.Fprintf(w, "    zebro group create dev/%[1]saccount/%[1]srepo -l github/%[1]saccount -l github/%[1]saccount/%[1]srepo\n", p)
 		fmt.Fprintf(w, "    zebro open -g dev/myorg/myrepo    # %[1]saccount=myorg, %[1]srepo=myrepo\n", p)
 		fmt.Fprintln(w, "")
+		fmt.Fprintf(w, "  Direct URL:\n")
+		fmt.Fprintf(w, "    zebro group create morning --url https://example.com -l github\n")
+		fmt.Fprintln(w, "")
 		fmt.Fprintf(w, "  variable_prefix   prefix character (current: %s)  →  zebro config set variable_prefix\n", p)
 		fmt.Fprintf(w, "  variable_display  affects output only  →  zebro config set variable_display named|positional\n")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "EXAMPLES")
 		fmt.Fprintf(w, "  $ zebro group list\n")
 		fmt.Fprintf(w, "  $ zebro group create morning -l github -l slack\n")
+		fmt.Fprintf(w, "  $ zebro group create morning --url https://example.com\n")
 		fmt.Fprintf(w, "  $ zebro group add morning -l jira/PROJ-100\n")
 		fmt.Fprintf(w, "  $ zebro group remove morning -l slack\n")
 		fmt.Fprintf(w, "  $ zebro group view morning\n")
@@ -109,16 +115,17 @@ func init() {
 }
 
 var groupCreateCmd = &cobra.Command{
-	Use:   "create <name> [-l <link-key>...]",
+	Use:   "create <name> [-l <link-key>...] [-u <url>...]",
 	Short: "Create a new group",
 	Long: `Create a named group of links that open together with 'zebro open -g'.
 
 The group name may include variable placeholders (e.g. dev/@account/@repo).
-Variables in the name are mapped positionally to the link keys.
-Link keys without variables create a concrete group.
+Variables in the name are mapped positionally to the URLs.
+Use -l to add links by key, or -u/--url to add direct URLs.
 
 If the group already exists, it is replaced.`,
 	Example: `  $ zebro group create morning -l github -l slack -l jira/PROJ-100
+  $ zebro group create morning --url https://example.com -l github
   $ zebro group create dev/@account/@repo -l github/@account -l github/@account/@repo
   $ zebro group create focus -d "deep work"`,
 	ValidArgsFunction: cobra.NoFileCompletions,
@@ -133,17 +140,24 @@ If the group already exists, it is replaced.`,
 
 		name := args[0]
 		rawLinkKeys, _ := cmd.Flags().GetStringArray("link")
+		rawURLs, _ := cmd.Flags().GetStringArray("url")
 		desc, _ := cmd.Flags().GetString("description")
 
 		normName := store.NormalizeVars(name, cfg.VariablePrefix)
 		posName, params := store.NormalizeToPositional(normName)
 		nameToPos := store.NameToPos(params)
 
-		posLinkKeys, err := normalizeGroupLinks(rawLinkKeys, cfg.VariablePrefix, nameToPos, posName)
+		links, err := store.ListLinks(config.ProfileLinksFile(profile))
 		if err != nil {
 			return err
 		}
-		if err := validateGroupLinks(profile, cfg.VariablePrefix, posLinkKeys); err != nil {
+		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
+		if err != nil {
+			return err
+		}
+
+		posURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, links)
+		if err != nil {
 			return err
 		}
 
@@ -152,22 +166,20 @@ If the group already exists, it is replaced.`,
 		if err != nil {
 			return err
 		}
-		prevEntry, hasPrev := gf.Groups[posName]
+		_, hasPrev := gf.Groups[posName]
 		gf.Groups[posName] = store.GroupEntry{
 			Description: desc,
 			Params:      params,
-			Links:       posLinkKeys,
+			URLs:        posURLTemplates,
 		}
 		if err := store.SaveGroups(groupsPath, gf); err != nil {
 			return err
 		}
 
 		if hasPrev {
-			fmt.Printf("updated group %q\n", name)
-			fmt.Printf("  was: [%s]\n", denormalizeGroupLinks(prevEntry.Links, cfg.VariablePrefix, prevEntry.Params))
-			fmt.Printf("  now: [%s]\n", denormalizeGroupLinks(posLinkKeys, cfg.VariablePrefix, params))
+			fmt.Printf("updated group %q with %d URL(s)\n", name, len(posURLTemplates))
 		} else {
-			fmt.Printf("created group %q with %d link(s)\n", name, len(rawLinkKeys))
+			fmt.Printf("created group %q with %d URL(s)\n", name, len(posURLTemplates))
 		}
 		return nil
 	},
@@ -176,7 +188,7 @@ If the group already exists, it is replaced.`,
 var groupListCmd = &cobra.Command{
 	Use:     "list",
 	Short:   "List all groups",
-	Long:    "List all groups in the current profile with their link counts.",
+	Long:    "List all groups in the current profile with their URL counts.",
 	Example: "  $ zebro group list",
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -197,22 +209,22 @@ var groupListCmd = &cobra.Command{
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		if cfg.VariableDisplay == "positional" {
-			fmt.Fprintln(w, "NAME\tLINKS\tDESCRIPTION\tPARAMS")
-			fmt.Fprintln(w, "----\t-----\t-----------\t------")
+			fmt.Fprintln(w, "NAME\tURLS\tDESCRIPTION\tPARAMS")
+			fmt.Fprintln(w, "----\t----\t-----------\t------")
 			for _, g := range groups {
 				fmt.Fprintf(w, "%s\t%d\t%s\t%s\n",
 					store.DenormalizeVars(g.Name, cfg.VariablePrefix),
-					len(g.Links),
+					len(g.URLs),
 					g.Description,
 					formatParams(cfg.VariablePrefix, g.Params))
 			}
 		} else {
-			fmt.Fprintln(w, "NAME\tLINKS\tDESCRIPTION")
-			fmt.Fprintln(w, "----\t-----\t-----------")
+			fmt.Fprintln(w, "NAME\tURLS\tDESCRIPTION")
+			fmt.Fprintln(w, "----\t----\t-----------")
 			for _, g := range groups {
 				fmt.Fprintf(w, "%s\t%d\t%s\n",
 					store.DenormalizeParams(g.Name, cfg.VariablePrefix, g.Params),
-					len(g.Links),
+					len(g.URLs),
 					g.Description)
 			}
 		}
@@ -223,8 +235,8 @@ var groupListCmd = &cobra.Command{
 var groupViewCmd = &cobra.Command{
 	Use:   "view <name>",
 	Short: "Show group details",
-	Long: `Show details of a group including its links and their resolved URLs.
-Links are listed in order with 1-based position numbers.`,
+	Long: `Show details of a group including its URLs.
+URLs are listed in order with 1-based position numbers.`,
 	Example: `  $ zebro group view morning
   $ zebro group view dev/@account/@repo`,
 	ValidArgsFunction: completeGroupNames,
@@ -255,29 +267,10 @@ Links are listed in order with 1-based position numbers.`,
 			fmt.Printf("description: %s\n", group.Description)
 		}
 
-		links, err := store.ListLinks(config.ProfileLinksFile(profile))
-		if err != nil {
-			return err
-		}
-		linkMap := make(map[string]store.Link, len(links))
-		for _, lnk := range links {
-			linkMap[lnk.Key] = lnk
-		}
-
-		fmt.Printf("links (%d):\n", len(group.Links))
-		for i, l := range group.Links {
-			displayKey := displayVar(l, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
-			var displayURL string
-			if lnk, ok := linkMap[l]; ok {
-				displayURL = displayVar(lnk.URL, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
-			} else {
-				displayURL = resolveLinkURL(l, links, cfg.VariablePrefix)
-			}
-			if displayURL != "" {
-				fmt.Printf("  %d. %s → %s\n", i+1, displayKey, displayURL)
-			} else {
-				fmt.Printf("  %d. %s\n", i+1, displayKey)
-			}
+		fmt.Printf("urls (%d):\n", len(group.URLs))
+		for i, urlTmpl := range group.URLs {
+			displayURL := displayVar(urlTmpl, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
+			fmt.Printf("  %d. %s\n", i+1, displayURL)
 		}
 		return nil
 	},
@@ -286,7 +279,7 @@ Links are listed in order with 1-based position numbers.`,
 var groupDeleteCmd = &cobra.Command{
 	Use:               "delete <name>",
 	Short:             "Delete a group",
-	Long:              "Delete a group by name. The group's links are not affected.",
+	Long:              "Delete a group by name.",
 	Example:           "  $ zebro group delete morning",
 	ValidArgsFunction: completeGroupNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -314,20 +307,21 @@ var groupDeleteCmd = &cobra.Command{
 		if err := store.SaveGroups(groupsPath, gf); err != nil {
 			return err
 		}
-		fmt.Printf("removed group %q: [%s]\n", args[0], denormalizeGroupLinks(entry.Links, cfg.VariablePrefix, entry.Params))
+		fmt.Printf("removed group %q (%d URL(s))\n", args[0], len(entry.URLs))
 		return nil
 	},
 }
 
 var groupAddCmd = &cobra.Command{
-	Use:   "add <name> -l <link-key> [-l <link-key>...]",
-	Short: "Add links to a group",
-	Long: `Add one or more link keys to an existing group.
+	Use:   "add <name> [-l <link-key>...] [-u <url>...]",
+	Short: "Add links or URLs to a group",
+	Long: `Add one or more link keys or direct URLs to an existing group.
 
-By default links are appended to the end. Use --at to insert at a specific
-1-based position, shifting existing links down.`,
+By default entries are appended to the end. Use --at to insert at a specific
+1-based position, shifting existing entries down.`,
 	Example: `  $ zebro group add morning -l notion
   $ zebro group add morning -l notion -l figma
+  $ zebro group add morning --url https://example.com
   $ zebro group add morning -l notion --at 1`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
@@ -340,8 +334,9 @@ By default links are appended to the end. Use --at to insert at a specific
 			return cmd.Help()
 		}
 		rawLinkKeys, _ := cmd.Flags().GetStringArray("link")
-		if len(rawLinkKeys) == 0 {
-			return fmt.Errorf("requires at least 1 link key: use -l <link-key>")
+		rawURLs, _ := cmd.Flags().GetStringArray("url")
+		if len(rawLinkKeys) == 0 && len(rawURLs) == 0 {
+			return fmt.Errorf("requires at least 1 link key (-l) or URL (-u/--url)")
 		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
@@ -364,33 +359,39 @@ By default links are appended to the end. Use --at to insert at a specific
 			return fmt.Errorf("group %q not found", name)
 		}
 
-		posLinkKeys, err := normalizeGroupLinks(rawLinkKeys, cfg.VariablePrefix, store.NameToPos(entry.Params), posName)
+		links, err := store.ListLinks(config.ProfileLinksFile(profile))
 		if err != nil {
 			return err
 		}
-		if err := validateGroupLinks(profile, cfg.VariablePrefix, posLinkKeys); err != nil {
+		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
+		if err != nil {
 			return err
 		}
 
-		if at <= 0 || at > len(entry.Links) {
-			entry.Links = append(entry.Links, posLinkKeys...)
+		nameToPos := store.NameToPos(entry.Params)
+		newURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, links)
+		if err != nil {
+			return err
+		}
+
+		if at <= 0 || at > len(entry.URLs) {
+			entry.URLs = append(entry.URLs, newURLTemplates...)
 		} else {
-			merged := make([]string, 0, len(entry.Links)+len(posLinkKeys))
-			merged = append(merged, entry.Links[:at-1]...)
-			merged = append(merged, posLinkKeys...)
-			merged = append(merged, entry.Links[at-1:]...)
-			entry.Links = merged
+			merged := make([]string, 0, len(entry.URLs)+len(newURLTemplates))
+			merged = append(merged, entry.URLs[:at-1]...)
+			merged = append(merged, newURLTemplates...)
+			merged = append(merged, entry.URLs[at-1:]...)
+			entry.URLs = merged
 		}
 		gf.Groups[posName] = entry
 		if err := store.SaveGroups(groupsPath, gf); err != nil {
 			return err
 		}
 
-		displayKeys := denormalizeGroupLinks(posLinkKeys, cfg.VariablePrefix, entry.Params)
 		if at > 0 {
-			fmt.Printf("added %s to group %q at position %d\n", displayKeys, name, at)
+			fmt.Printf("added %d URL(s) to group %q at position %d\n", len(newURLTemplates), name, at)
 		} else {
-			fmt.Printf("added %s to group %q\n", displayKeys, name)
+			fmt.Printf("added %d URL(s) to group %q\n", len(newURLTemplates), name)
 		}
 		return nil
 	},
@@ -398,10 +399,10 @@ By default links are appended to the end. Use --at to insert at a specific
 
 var groupRemoveCmd = &cobra.Command{
 	Use:   "remove <name> [-l <link-key>...] [--at <position>]",
-	Short: "Remove links from a group",
-	Long: `Remove links from a group by key or by position.
-Removing by key (-l) removes all occurrences of that link.
-Removing by position (--at) removes the link at that 1-based index.`,
+	Short: "Remove entries from a group",
+	Long: `Remove URLs from a group by link key or by position.
+Removing by link key (-l) removes the first matching URL resolved from that key.
+Removing by position (--at) removes the URL at that 1-based index.`,
 	Example: `  $ zebro group remove morning -l slack
   $ zebro group remove morning -l github -l slack
   $ zebro group remove morning --at 2`,
@@ -445,49 +446,61 @@ Removing by position (--at) removes the link at that 1-based index.`,
 		}
 
 		if at > 0 {
-			if at > len(entry.Links) {
-				return fmt.Errorf("position %d out of range (group has %d link(s))", at, len(entry.Links))
+			if at > len(entry.URLs) {
+				return fmt.Errorf("position %d out of range (group has %d URL(s))", at, len(entry.URLs))
 			}
-			removed := entry.Links[at-1]
-			newLinks := make([]string, 0, len(entry.Links)-1)
-			newLinks = append(newLinks, entry.Links[:at-1]...)
-			newLinks = append(newLinks, entry.Links[at:]...)
-			entry.Links = newLinks
+			removed := entry.URLs[at-1]
+			newURLs := make([]string, 0, len(entry.URLs)-1)
+			newURLs = append(newURLs, entry.URLs[:at-1]...)
+			newURLs = append(newURLs, entry.URLs[at:]...)
+			entry.URLs = newURLs
 			gf.Groups[posName] = entry
 			if err := store.SaveGroups(groupsPath, gf); err != nil {
 				return err
 			}
-			fmt.Printf("removed %s from group %q (position %d)\n",
-				displayVar(removed, cfg.VariablePrefix, entry.Params, cfg.VariableDisplay), name, at)
+			displayURL := store.DenormalizeParams(removed, cfg.VariablePrefix, entry.Params)
+			fmt.Printf("removed %s from group %q (position %d)\n", displayURL, name, at)
 			return nil
 		}
 
-		// Remove by key — all occurrences
-		normKeys, err := normalizeGroupLinks(keys, cfg.VariablePrefix, store.NameToPos(entry.Params), posName)
+		// Remove by link key — resolve each key to its URL template and remove matching entries
+		links, err := store.ListLinks(config.ProfileLinksFile(profile))
 		if err != nil {
 			return err
 		}
-		removeSet := make(map[string]bool, len(normKeys))
-		for _, k := range normKeys {
-			removeSet[k] = true
+		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
+		if err != nil {
+			return err
 		}
-		filtered := make([]string, 0, len(entry.Links))
-		for _, l := range entry.Links {
-			if !removeSet[l] {
-				filtered = append(filtered, l)
+		nameToPos := store.NameToPos(entry.Params)
+		removeURLs, err := resolveGroupEntries(keys, nil, cfg.VariablePrefix, nameToPos, posName, lf, links)
+		if err != nil {
+			return err
+		}
+		removeSet := make(map[string]bool, len(removeURLs))
+		for _, u := range removeURLs {
+			removeSet[u] = true
+		}
+		filtered := make([]string, 0, len(entry.URLs))
+		for _, u := range entry.URLs {
+			if !removeSet[u] {
+				filtered = append(filtered, u)
 			}
 		}
-		removedCount := len(entry.Links) - len(filtered)
+		removedCount := len(entry.URLs) - len(filtered)
 		if removedCount == 0 {
-			return fmt.Errorf("no matching links found in group %q", name)
+			return fmt.Errorf("no matching entries found in group %q", name)
 		}
-		entry.Links = filtered
+		entry.URLs = filtered
 		gf.Groups[posName] = entry
 		if err := store.SaveGroups(groupsPath, gf); err != nil {
 			return err
 		}
-		fmt.Printf("removed %s from group %q\n",
-			denormalizeGroupLinks(normKeys, cfg.VariablePrefix, entry.Params), name)
+		var displayKeys []string
+		for _, k := range keys {
+			displayKeys = append(displayKeys, k)
+		}
+		fmt.Printf("removed %s from group %q\n", strings.Join(displayKeys, ", "), name)
 		return nil
 	},
 }
@@ -585,65 +598,94 @@ func completeLinkKeysAll(_ *cobra.Command, _ []string, _ string) ([]string, cobr
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
-// normalizeGroupLinks normalizes a list of user-facing link keys to positional form
-// using the group's variable mapping.
-func normalizeGroupLinks(keys []string, variablePrefix string, nameToPos map[string]int, posGroupName string) ([]string, error) {
-	result := make([]string, len(keys))
-	isPositionalGroup := len(nameToPos) == 0 && store.HasVars(posGroupName)
-	for i, key := range keys {
+// resolveGroupEntries converts link keys and direct URLs to positional URL templates
+// suitable for storage in a group's URLs slice.
+//
+// For named variable groups (nameToPos non-empty):
+//   - link keys: normalize + apply group variable mapping → look up in link store → get URL template
+//   - direct URLs: normalize + apply group variable mapping
+//
+// For positional variable groups (posGroupName has vars, nameToPos empty):
+//   - link keys/URLs must use positional vars (@1, @2); look up link directly
+//
+// For concrete groups (no vars):
+//   - link keys: resolve via resolver to get concrete URL
+//   - direct URLs: used as-is (must not contain group variables)
+func resolveGroupEntries(linkKeys, rawURLs []string, variablePrefix string, nameToPos map[string]int, posGroupName string, lf *store.LinkFile, links []store.Link) ([]string, error) {
+	isPositionalGroup := store.HasVars(posGroupName) && len(nameToPos) == 0
+	r := resolver.New(variablePrefix)
+
+	var result []string
+
+	for _, key := range linkKeys {
 		norm := store.NormalizeVars(key, variablePrefix)
+
 		switch {
 		case len(nameToPos) > 0:
-			pos, err := store.ApplyPositional(norm, nameToPos)
+			// Named variable group: apply group variable mapping to get positional link key
+			posKey, err := store.ApplyPositional(norm, nameToPos)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", key, err)
 			}
-			result[i] = pos
-		case isPositionalGroup:
-			if len(store.ExtractVarNames(norm)) > 0 {
-				return nil, fmt.Errorf("%q uses named variables — positional group requires %[2]s1, %[2]s2, ... style", key, variablePrefix)
+			entry, ok := lf.Links[posKey]
+			if !ok {
+				return nil, fmt.Errorf("link %q not found", key)
 			}
-			result[i] = norm
+			result = append(result, entry.URL)
+
+		case isPositionalGroup:
+			// Positional variable group: link key must use positional vars
+			if len(store.ExtractVarNames(norm)) > 0 {
+				return nil, fmt.Errorf("%q uses named variables — positional group requires %s1, %s2, ... style", key, variablePrefix, variablePrefix)
+			}
+			entry, ok := lf.Links[norm]
+			if !ok {
+				return nil, fmt.Errorf("link %q not found", key)
+			}
+			result = append(result, entry.URL)
+
 		default:
+			// Concrete group: resolve link key to concrete URL
 			if store.HasVars(norm) {
 				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", key)
 			}
-			result[i] = norm
+			res, err := r.Resolve(key, links)
+			if err != nil {
+				return nil, fmt.Errorf("cannot resolve %q: %w", key, err)
+			}
+			result = append(result, res.URL)
 		}
 	}
+
+	for _, rawURL := range rawURLs {
+		norm := store.NormalizeVars(rawURL, variablePrefix)
+
+		switch {
+		case len(nameToPos) > 0:
+			// Named variable group: apply group variable mapping
+			posURL, err := store.ApplyPositional(norm, nameToPos)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", rawURL, err)
+			}
+			result = append(result, posURL)
+
+		case isPositionalGroup:
+			// Positional variable group: named vars not allowed
+			if len(store.ExtractVarNames(norm)) > 0 {
+				return nil, fmt.Errorf("%q uses named variables — positional group requires positional style", rawURL)
+			}
+			result = append(result, norm)
+
+		default:
+			// Concrete group: URL must not contain variables
+			if store.HasVars(norm) {
+				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", rawURL)
+			}
+			result = append(result, norm)
+		}
+	}
+
 	return result, nil
-}
-
-// validateGroupLinks checks that all group link keys (in positional form) are resolvable.
-func validateGroupLinks(profile, variablePrefix string, posLinkKeys []string) error {
-	links, err := store.ListLinks(config.ProfileLinksFile(profile))
-	if err != nil {
-		return err
-	}
-
-	r := resolver.New(variablePrefix)
-	dummy := []string{"x", "x", "x", "x", "x", "x", "x", "x"}
-
-	var invalid []string
-	for _, posKey := range posLinkKeys {
-		testKey := store.DenormalizeVars(store.FillPositional(posKey, dummy), variablePrefix)
-		if _, err := r.Resolve(testKey, links); err != nil {
-			invalid = append(invalid, store.DenormalizeVars(posKey, variablePrefix))
-		}
-	}
-	if len(invalid) > 0 {
-		return fmt.Errorf("unknown link key(s): %s\nrun 'zebro link list' to see available keys", strings.Join(invalid, ", "))
-	}
-	return nil
-}
-
-// denormalizeGroupLinks converts a list of positional group link templates to display form.
-func denormalizeGroupLinks(links []string, prefix string, params []string) string {
-	names := make([]string, len(links))
-	for i, l := range links {
-		names[i] = store.DenormalizeParams(l, prefix, params)
-	}
-	return strings.Join(names, ", ")
 }
 
 // completeGroupNames returns group names for tab completion.
