@@ -20,6 +20,45 @@ var linkCmd = &cobra.Command{
 func init() {
 	linkCmd.AddCommand(linkListCmd, linkViewCmd, linkCreateCmd, linkDeleteCmd, linkClearCmd)
 	linkCreateCmd.Flags().StringP("description", "d", "", "Link description")
+
+	defaultHelp := linkCmd.HelpFunc()
+	linkCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if cmd != linkCmd {
+			defaultHelp(cmd, args)
+			return
+		}
+		p := "@"
+		if cfg, err := config.Load(); err == nil {
+			p = cfg.VariablePrefix
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "Manage links — URL patterns with optional variable placeholders.")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "USAGE")
+		fmt.Fprintln(w, "  zebro link <subcommand> [flags]")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "COMMANDS")
+		fmt.Fprintln(w, "  list:\tList all links")
+		fmt.Fprintln(w, "  view:\tShow link details")
+		fmt.Fprintln(w, "  create:\tAdd or update a link")
+		fmt.Fprintln(w, "  delete:\tRemove a link")
+		fmt.Fprintln(w, "  clear:\tRemove all links")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "FLAGS")
+		fmt.Fprintln(w, "  -h, --help\tShow help for command")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "EXAMPLES")
+		fmt.Fprintf(w, "  $ zebro link list\n")
+		fmt.Fprintf(w, "  $ zebro link view github\n")
+		fmt.Fprintf(w, "  $ zebro link create github https://github.com\n")
+		fmt.Fprintf(w, "  $ zebro link create github/%[1]saccount/%[1]srepo https://github.com/%[1]saccount/%[1]srepo\n", p)
+		fmt.Fprintf(w, "  $ zebro link create jira/%[1]sticket https://jira.company.com/browse/%[1]sticket -d \"Jira issue\"\n", p)
+		fmt.Fprintf(w, "  $ zebro link delete github\n")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "LEARN MORE")
+		fmt.Fprintln(w, "  Use \"zebro link <subcommand> --help\" for more information about a command.")
+		w.Flush()
+	})
 }
 
 var linkCreateCmd = &cobra.Command{
@@ -29,8 +68,11 @@ var linkCreateCmd = &cobra.Command{
 	Example: `  $ zebro link create github https://github.com
   $ zebro link create github/@account/@repo https://github.com/@account/@repo
   $ zebro link create jira/@ticket https://jira.company.com/browse/@ticket -d "Jira issue"`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.MaximumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return cmd.Help()
+		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
@@ -85,13 +127,16 @@ var linkCreateCmd = &cobra.Command{
 			return err
 		}
 		if prev != nil {
-			fmt.Printf("updated link %q\n", args[0])
-			fmt.Printf("  was: %s", store.DenormalizeParams(prev.URL, cfg.VariablePrefix, prev.Params))
+			prevKey := store.DenormalizeParams(prev.Key, cfg.VariablePrefix, prev.Params)
+			prevURL := store.DenormalizeParams(prev.URL, cfg.VariablePrefix, prev.Params)
+			newURL := store.DenormalizeParams(posURL, cfg.VariablePrefix, params)
+			fmt.Printf("updated link %q\n", prevKey)
+			fmt.Printf("  was: %s", prevURL)
 			if prev.Description != "" {
 				fmt.Printf(" (%s)", prev.Description)
 			}
 			fmt.Println()
-			fmt.Printf("  now: %s", args[1])
+			fmt.Printf("  now: %s", newURL)
 			if desc != "" {
 				fmt.Printf(" (%s)", desc)
 			}
@@ -124,14 +169,13 @@ var linkListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "KEY\tURL\tDESCRIPTION\tPARAMS")
-		fmt.Fprintln(w, "---\t---\t-----------\t------")
+		fmt.Fprintln(w, "KEY\tURL\tDESCRIPTION")
+		fmt.Fprintln(w, "---\t---\t-----------")
 		for _, l := range links {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-				store.DenormalizeVars(l.Key, cfg.VariablePrefix),
-				store.DenormalizeVars(l.URL, cfg.VariablePrefix),
-				l.Description,
-				formatParams(cfg.VariablePrefix, l.Params))
+			fmt.Fprintf(w, "%s\t%s\t%s\n",
+				store.DenormalizeParams(l.Key, cfg.VariablePrefix, l.Params),
+				store.DenormalizeParams(l.URL, cfg.VariablePrefix, l.Params),
+				l.Description)
 		}
 		return w.Flush()
 	},
@@ -140,9 +184,12 @@ var linkListCmd = &cobra.Command{
 var linkViewCmd = &cobra.Command{
 	Use:               "view <key>",
 	Short:             "Show link details",
-	Args:              cobra.ExactArgs(1),
+	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeLinkKeys,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
@@ -156,8 +203,8 @@ var linkViewCmd = &cobra.Command{
 			return fmt.Errorf("link %q not found", args[0])
 		}
 
-		fmt.Printf("key:         %s\n", store.DenormalizeVars(link.Key, cfg.VariablePrefix))
-		fmt.Printf("url:         %s\n", store.DenormalizeVars(link.URL, cfg.VariablePrefix))
+		fmt.Printf("key:         %s\n", store.DenormalizeParams(link.Key, cfg.VariablePrefix, link.Params))
+		fmt.Printf("url:         %s\n", store.DenormalizeParams(link.URL, cfg.VariablePrefix, link.Params))
 		if p := formatParams(cfg.VariablePrefix, link.Params); p != "" {
 			fmt.Printf("params:      %s\n", p)
 		}
@@ -171,9 +218,12 @@ var linkViewCmd = &cobra.Command{
 var linkDeleteCmd = &cobra.Command{
 	Use:               "delete <key>",
 	Short:             "Remove a link",
-	Args:              cobra.ExactArgs(1),
+	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeLinkKeys,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
 			return err
@@ -189,7 +239,7 @@ var linkDeleteCmd = &cobra.Command{
 		if err := store.RemoveLink(config.ProfileLinksFile(profile), posKey); err != nil {
 			return err
 		}
-		fmt.Printf("removed link %q: %s\n", args[0], store.DenormalizeVars(link.URL, cfg.VariablePrefix))
+		fmt.Printf("removed link %q: %s\n", args[0], store.DenormalizeParams(link.URL, cfg.VariablePrefix, link.Params))
 		return nil
 	},
 }
