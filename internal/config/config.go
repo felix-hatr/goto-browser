@@ -283,7 +283,7 @@ func ListProfiles() ([]string, error) {
 
 	var names []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
 			names = append(names, e.Name())
 		}
 	}
