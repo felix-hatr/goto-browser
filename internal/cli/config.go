@@ -28,6 +28,8 @@ var sharedConfigKeys = []configKeyDef{
 	{"profile_delete_mode", "How to delete profiles {backup|permanent} (default: backup)", []string{"backup", "permanent"}, false},
 	{"profile_view_mode", "Default view mode for profile view {summary|detail} (default: summary)", []string{"summary", "detail"}, false},
 	{"description", "Profile description (profile only)", nil, true},
+	{"history_limit", "Max history entries (default: 200, -1=disabled)", nil, false},
+	{"history_ttl", "Retention in days (default: 30, -1=keep forever)", nil, false},
 }
 
 func globalConfigKeys() []configKeyDef {

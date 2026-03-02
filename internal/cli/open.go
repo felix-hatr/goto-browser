@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/felix-hatr/goto-browser/internal/browser"
 	"github.com/felix-hatr/goto-browser/internal/config"
@@ -109,7 +110,18 @@ based on the open_default config setting (default: link).`,
 
 		switch {
 		case openURLFlag != "":
-			return openURLWithConfig(cfg, openURLFlag)
+			if err := openURLWithConfig(cfg, openURLFlag); err != nil {
+				return err
+			}
+			if !openDryRun {
+				recordHistory(profile, cfg, store.HistoryEntry{
+					Time:   time.Now().UTC(),
+					Type:   "url",
+					Target: openURLFlag,
+					URLs:   []string{openURLFlag},
+				})
+			}
+			return nil
 		case openGroupFlag != "":
 			return runOpenGroup(openGroupFlag, profile, cfg)
 		case openLinkFlag != "":
@@ -120,9 +132,19 @@ based on the open_default config setting (default: link).`,
 			case "group":
 				return runOpenGroup(target, profile, cfg)
 			case "url":
-				return openURLWithConfig(cfg, target)
+				if err := openURLWithConfig(cfg, target); err != nil {
+					return err
+				}
+				if !openDryRun {
+					recordHistory(profile, cfg, store.HistoryEntry{
+						Time:   time.Now().UTC(),
+						Type:   "url",
+						Target: target,
+						URLs:   []string{target},
+					})
+				}
+				return nil
 			default:
-				// Check if it looks like a URL and open_default=url is set via positional detection
 				return runOpenLinkKey(target, profile, cfg)
 			}
 		default:
@@ -143,7 +165,18 @@ func runOpenLinkKey(key, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	return openURLWithConfig(cfg, result.URL)
+	if err := openURLWithConfig(cfg, result.URL); err != nil {
+		return err
+	}
+	if !openDryRun {
+		recordHistory(profile, cfg, store.HistoryEntry{
+			Time:   time.Now().UTC(),
+			Type:   "link",
+			Target: key,
+			URLs:   []string{result.URL},
+		})
+	}
+	return nil
 }
 
 func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
@@ -195,9 +228,16 @@ func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 		return err
 	}
 
-	return b.OpenURLs(urls, browser.OpenOptions{
-		NewWindow: true,
+	if err := b.OpenURLs(urls, browser.OpenOptions{NewWindow: true}); err != nil {
+		return err
+	}
+	recordHistory(profile, cfg, store.HistoryEntry{
+		Time:   time.Now().UTC(),
+		Type:   "group",
+		Target: input,
+		URLs:   urls,
 	})
+	return nil
 }
 
 func openURLWithConfig(cfg *config.GlobalConfig, url string) error {
@@ -226,4 +266,15 @@ func openURLWithConfig(cfg *config.GlobalConfig, url string) error {
 	}
 
 	return b.OpenURL(url, opts)
+}
+
+// recordHistory appends an entry to the profile's history file.
+// Errors are silently ignored to not disrupt the open operation.
+func recordHistory(profile string, cfg *config.GlobalConfig, entry store.HistoryEntry) {
+	_ = store.AppendHistory(
+		config.ProfileHistoryFile(profile),
+		entry,
+		cfg.HistoryLimit,
+		cfg.HistoryTTL,
+	)
 }

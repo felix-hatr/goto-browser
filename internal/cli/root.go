@@ -78,6 +78,7 @@ func init() {
 		openCmd,
 		configCmd,
 		doctorCmd,
+		historyCmd,
 		completionCmd,
 	)
 
@@ -113,6 +114,7 @@ func init() {
 
 		fmt.Fprintln(w, "UTILITY COMMANDS")
 		fmt.Fprintln(w, "  config:\tManage configuration")
+		fmt.Fprintln(w, "  history:\tView and manage open history")
 		fmt.Fprintln(w, "  doctor:\tRun diagnostics on your zebro setup")
 		fmt.Fprintln(w, "  completion:\tGenerate shell completion script")
 		fmt.Fprintln(w, "")

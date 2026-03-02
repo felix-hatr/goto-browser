@@ -23,6 +23,8 @@ type GlobalConfig struct {
 	OpenDefault       string `yaml:"open_default"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode"`
 	ProfileViewMode   string `yaml:"profile_view_mode"`
+	HistoryLimit      int    `yaml:"history_limit,omitempty"`
+	HistoryTTL        int    `yaml:"history_ttl,omitempty"`
 
 	// Runtime-only: loaded from .current_profile, not written to config.yaml.
 	ActiveProfile string `yaml:"-"`
@@ -40,6 +42,8 @@ type ProfileConfig struct {
 	OpenDefault       string `yaml:"open_default,omitempty"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode,omitempty"`
 	ProfileViewMode   string `yaml:"profile_view_mode,omitempty"`
+	HistoryLimit      int    `yaml:"history_limit,omitempty"`
+	HistoryTTL        int    `yaml:"history_ttl,omitempty"`
 }
 
 // applyConfigDefaults fills in zero-value fields with their defaults.
@@ -61,6 +65,12 @@ func applyConfigDefaults(cfg *GlobalConfig) {
 	}
 	if cfg.ProfileViewMode == "" {
 		cfg.ProfileViewMode = "summary"
+	}
+	if cfg.HistoryLimit == 0 {
+		cfg.HistoryLimit = 200
+	}
+	if cfg.HistoryTTL == 0 {
+		cfg.HistoryTTL = 30
 	}
 }
 
@@ -139,6 +149,12 @@ func applyProfileOverrides(global *GlobalConfig, profile *ProfileConfig) {
 	}
 	if profile.ProfileViewMode != "" {
 		global.ProfileViewMode = profile.ProfileViewMode
+	}
+	if profile.HistoryLimit != 0 {
+		global.HistoryLimit = profile.HistoryLimit
+	}
+	if profile.HistoryTTL != 0 {
+		global.HistoryTTL = profile.HistoryTTL
 	}
 }
 
@@ -322,8 +338,18 @@ func (c *ProfileConfig) Get(key string) (string, error) {
 		return c.ProfileDeleteMode, nil
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
+	case "history_limit":
+		if c.HistoryLimit == 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", c.HistoryLimit), nil
+	case "history_ttl":
+		if c.HistoryTTL == 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", c.HistoryTTL), nil
 	default:
-		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
 	}
 }
 
@@ -364,8 +390,20 @@ func (c *ProfileConfig) Set(key, value string) error {
 			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
 		}
 		c.ProfileViewMode = value
+	case "history_limit":
+		n, err := parseHistoryInt(value, "history_limit")
+		if err != nil {
+			return err
+		}
+		c.HistoryLimit = n
+	case "history_ttl":
+		n, err := parseHistoryInt(value, "history_ttl")
+		if err != nil {
+			return err
+		}
+		c.HistoryTTL = n
 	default:
-		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
 	}
 	return nil
 }
@@ -387,8 +425,12 @@ func (c *GlobalConfig) Get(key string) (string, error) {
 		return c.ProfileDeleteMode, nil
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
+	case "history_limit":
+		return fmt.Sprintf("%d", c.HistoryLimit), nil
+	case "history_ttl":
+		return fmt.Sprintf("%d", c.HistoryTTL), nil
 	default:
-		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
 	}
 }
 
@@ -427,10 +469,34 @@ func (c *GlobalConfig) Set(key, value string) error {
 			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
 		}
 		c.ProfileViewMode = value
+	case "history_limit":
+		n, err := parseHistoryInt(value, "history_limit")
+		if err != nil {
+			return err
+		}
+		c.HistoryLimit = n
+	case "history_ttl":
+		n, err := parseHistoryInt(value, "history_ttl")
+		if err != nil {
+			return err
+		}
+		c.HistoryTTL = n
 	default:
-		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode)", key)
+		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
 	}
 	return nil
+}
+
+// parseHistoryInt parses a history config value (must be integer >= -1).
+func parseHistoryInt(value, key string) (int, error) {
+	n := 0
+	if _, err := fmt.Sscanf(value, "%d", &n); err != nil {
+		return 0, fmt.Errorf("%s must be an integer (got %q)", key, value)
+	}
+	if n < -1 {
+		return 0, fmt.Errorf("%s must be >= -1 (use -1 to disable)", key)
+	}
+	return n, nil
 }
 
 // validateVariablePrefix checks that the prefix is a single, safe character.
