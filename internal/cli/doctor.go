@@ -51,7 +51,7 @@ var doctorCmd = &cobra.Command{
 		if profileExists {
 			// 3. Links file valid
 			linksPath := config.ProfileLinksFile(profileName)
-			links, err := store.LoadLinks(linksPath)
+			linkList, err := store.ListLinks(linksPath)
 			check(err == nil, "links.yaml syntax valid", errStr(err))
 
 			// 4. Aliases file valid + target references
@@ -59,19 +59,19 @@ var doctorCmd = &cobra.Command{
 			af, err := store.LoadAliases(aliasesPath)
 			check(err == nil, "aliases.yaml syntax valid", errStr(err))
 
-			if err == nil && af != nil && links != nil {
+			if err == nil && af != nil {
 				var broken []string
 				for name, target := range af.Aliases {
 					found := false
-					for key := range links.Links {
-						first := strings.SplitN(store.DenormalizeVars(key, cfg.VariablePrefix), "/", 2)[0]
+					for _, l := range linkList {
+						first := strings.SplitN(store.DenormalizeVars(l.Key, cfg.VariablePrefix), "/", 2)[0]
 						if first == target {
 							found = true
 							break
 						}
 					}
 					if !found {
-						broken = append(broken, fmt.Sprintf("%s->%s", name, target))
+						broken = append(broken, fmt.Sprintf("%s→%s", name, target))
 					}
 				}
 				if len(broken) > 0 {
@@ -87,20 +87,19 @@ var doctorCmd = &cobra.Command{
 			groups, err := store.LoadGroups(groupsPath)
 			check(err == nil, "groups.yaml syntax valid", errStr(err))
 
-			// 6. Group link references — skip variable-template links (validated at open time)
-			if links != nil && groups != nil {
-				af, _ := store.LoadAliases(aliasesPath)
-				var aliases map[string]string
+			// 6. Group link references — reuse already-loaded links and aliases
+			if groups != nil {
+				aliases := map[string]string{}
 				if af != nil {
 					aliases = af.Aliases
 				}
 				r := resolver.New(cfg.VariablePrefix)
-				linkList, _ := store.ListLinks(linksPath)
 
-				for groupName, entry := range groups.Groups {
+				for posName, entry := range groups.Groups {
+					displayName := store.DenormalizeParams(posName, cfg.VariablePrefix, entry.Params)
 					// Skip variable groups — their links can only be validated at open time
 					if len(entry.Params) > 0 {
-						check(true, fmt.Sprintf("group %q: variable group (validated at open time)", groupName), "")
+						check(true, fmt.Sprintf("group %q: variable group (validated at open time)", displayName), "")
 						continue
 					}
 					var missing []string
@@ -109,16 +108,16 @@ var doctorCmd = &cobra.Command{
 							continue // direct URL, always valid
 						}
 						if _, err := r.Resolve(ref, linkList, aliases); err != nil {
-							missing = append(missing, ref)
+							missing = append(missing, store.DenormalizeVars(ref, cfg.VariablePrefix))
 						}
 					}
 					if len(missing) > 0 {
 						check(false,
-							fmt.Sprintf("group %q: all links resolvable", groupName),
+							fmt.Sprintf("group %q: all links resolvable", displayName),
 							fmt.Sprintf("unresolvable refs: %s", strings.Join(missing, ", ")),
 						)
 					} else {
-						check(true, fmt.Sprintf("group %q: all links resolvable", groupName), "")
+						check(true, fmt.Sprintf("group %q: all links resolvable", displayName), "")
 					}
 				}
 			}

@@ -438,7 +438,7 @@ var profileDeleteCmd = &cobra.Command{
 		dir := config.ProfileDir(name)
 		if doBackup {
 			ts := time.Now().Format("20060102-150405")
-			bakDir := filepath.Join(config.ProfilesDir(), ".bak", name+"."+ts)
+			bakDir := ensureUniqueBakDir(name, ts)
 			if err := os.MkdirAll(filepath.Dir(bakDir), 0700); err != nil {
 				return fmt.Errorf("creating backup dir: %w", err)
 			}

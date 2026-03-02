@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -21,9 +22,25 @@ type profileBackup struct {
 }
 
 // parseBackupEntry parses a backup directory name into profile name and timestamp.
-// Format: {profileName}.{YYYYMMDD-HHMMSS}
+// Formats: {profileName}.{YYYYMMDD-HHMMSS} or {profileName}.{YYYYMMDD-HHMMSS}~N (collision suffix)
 func parseBackupEntry(name string) (profileName, timestamp string, ok bool) {
 	const tsLen = 15 // "20060102-150405"
+	// strip optional collision suffix like ~2, ~3
+	if idx := strings.LastIndex(name, "~"); idx > 0 {
+		tail := name[idx+1:]
+		if len(tail) > 0 {
+			allDigits := true
+			for _, c := range tail {
+				if c < '0' || c > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				name = name[:idx]
+			}
+		}
+	}
 	if len(name) <= tsLen+1 {
 		return "", "", false
 	}
@@ -32,6 +49,21 @@ func parseBackupEntry(name string) (profileName, timestamp string, ok bool) {
 		return "", "", false
 	}
 	return name[:len(name)-tsLen-1], ts, true
+}
+
+// ensureUniqueBakDir returns a backup directory path that doesn't already exist.
+// Appends ~2, ~3 etc. if the base path is taken (same-second collision).
+func ensureUniqueBakDir(profileName, ts string) string {
+	base := filepath.Join(config.ProfilesDir(), ".bak", profileName+"."+ts)
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return base
+	}
+	for n := 2; ; n++ {
+		candidate := fmt.Sprintf("%s~%d", base, n)
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
 }
 
 // listAllBackups returns all backups sorted by profile name asc, timestamp desc.
@@ -338,7 +370,7 @@ var profileBackupCreateCmd = &cobra.Command{
 			return fmt.Errorf("profile %q does not exist", name)
 		}
 		ts := time.Now().Format("20060102-150405")
-		bakDir := filepath.Join(config.ProfilesDir(), ".bak", name+"."+ts)
+		bakDir := ensureUniqueBakDir(name, ts)
 		if err := os.MkdirAll(bakDir, 0700); err != nil {
 			return fmt.Errorf("creating backup dir: %w", err)
 		}
@@ -407,7 +439,7 @@ var profileBackupRestoreCmd = &cobra.Command{
 			}
 			if cfg.ProfileDeleteMode == "backup" {
 				ts := time.Now().Format("20060102-150405")
-				bakDir := filepath.Join(config.ProfilesDir(), ".bak", targetName+"."+ts)
+				bakDir := ensureUniqueBakDir(targetName, ts)
 				if err := os.MkdirAll(filepath.Dir(bakDir), 0700); err != nil {
 					return fmt.Errorf("creating backup dir: %w", err)
 				}
