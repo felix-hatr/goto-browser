@@ -1,0 +1,55 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: zebro
+    binary: zebro
+    main: ./cmd/zebro
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+archives:
+  - id: zebro
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: felix-hatr
+    name: goto-browser
+
+brews:
+  - name: goto-browser
+    repository:
+      owner: felix-hatr
+      name: homebrew-goto-browser
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    directory: Formula
+    homepage: "https://github.com/felix-hatr/goto-browser"
+    description: "URL shortcut manager — open browser links from your terminal"
+    license: "MIT"
+    install: |
+      bin.install "zebro"
+      bash_completion.install "completions/zebro.bash" => "zebro"
+      zsh_completion.install "completions/zebro.zsh" => "_zebro"
+      fish_completion.install "completions/zebro.fish"
+    test: |
+      system "#{bin}/zebro", "--version"
