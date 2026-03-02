@@ -54,51 +54,19 @@ var doctorCmd = &cobra.Command{
 			linkList, err := store.ListLinks(linksPath)
 			check(err == nil, "links.yaml syntax valid", errStr(err))
 
-			// 4. Aliases file valid + target references
-			aliasesPath := config.ProfileAliasesFile(profileName)
-			af, err := store.LoadAliases(aliasesPath)
-			check(err == nil, "aliases.yaml syntax valid", errStr(err))
-
-			if err == nil && af != nil {
-				var broken []string
-				for name, target := range af.Aliases {
-					found := false
-					for _, l := range linkList {
-						first := strings.SplitN(store.DenormalizeVars(l.Key, cfg.VariablePrefix), "/", 2)[0]
-						if first == target {
-							found = true
-							break
-						}
-					}
-					if !found {
-						broken = append(broken, fmt.Sprintf("%s→%s", name, target))
-					}
-				}
-				if len(broken) > 0 {
-					check(false, "aliases: all targets valid",
-						fmt.Sprintf("broken aliases: %s", strings.Join(broken, ", ")))
-				} else {
-					check(true, "aliases: all targets valid", "")
-				}
-			}
-
-			// 5. Groups file valid
+			// 4. Groups file valid
 			groupsPath := config.ProfileGroupsFile(profileName)
 			groups, err := store.LoadGroups(groupsPath)
 			check(err == nil, "groups.yaml syntax valid", errStr(err))
 
-			// 6. Group link references — reuse already-loaded links and aliases
+			// 5b. Group link references
 			if groups != nil {
-				aliases := map[string]string{}
-				if af != nil {
-					aliases = af.Aliases
-				}
 				r := resolver.New(cfg.VariablePrefix)
 
 				for posName, entry := range groups.Groups {
 					displayName := store.DenormalizeParams(posName, cfg.VariablePrefix, entry.Params)
-					// Skip variable groups — their links can only be validated at open time
-					if len(entry.Params) > 0 {
+					// Skip variable groups (named or positional) — validated at open time
+					if len(entry.Params) > 0 || store.HasVars(posName) {
 						check(true, fmt.Sprintf("group %q: variable group (validated at open time)", displayName), "")
 						continue
 					}
@@ -107,7 +75,7 @@ var doctorCmd = &cobra.Command{
 						if strings.Contains(ref, "://") {
 							continue // direct URL, always valid
 						}
-						if _, err := r.Resolve(ref, linkList, aliases); err != nil {
+						if _, err := r.Resolve(ref, linkList); err != nil {
 							missing = append(missing, store.DenormalizeVars(ref, cfg.VariablePrefix))
 						}
 					}

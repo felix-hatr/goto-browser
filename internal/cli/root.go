@@ -73,7 +73,6 @@ func init() {
 
 	rootCmd.AddCommand(
 		linkCmd,
-		aliasCmd,
 		groupCmd,
 		profileCmd,
 		openCmd,
@@ -108,7 +107,6 @@ func init() {
 
 		fmt.Fprintln(w, "RESOURCE COMMANDS")
 		fmt.Fprintln(w, "  link:\tManage links")
-		fmt.Fprintln(w, "  alias:\tManage aliases")
 		fmt.Fprintln(w, "  group:\tManage groups")
 		fmt.Fprintln(w, "  profile:\tManage profiles")
 		fmt.Fprintln(w, "")
@@ -129,7 +127,6 @@ func init() {
 		fmt.Fprintf(w, "  $ zebro link create github/%[1]saccount/%[1]srepo https://github.com/%[1]saccount/%[1]srepo\n", p)
 		fmt.Fprintf(w, "  $ zebro open github/octocat/hello-world\n")
 		fmt.Fprintf(w, "  $ zebro open -g morning\n")
-		fmt.Fprintf(w, "  $ zebro alias create gh github\n")
 		fmt.Fprintln(w, "")
 
 		fmt.Fprintln(w, "LEARN MORE")
@@ -150,6 +147,16 @@ func init() {
 	})
 }
 
+// displayVar renders a stored key/URL for output based on the configured display mode.
+// mode "named"      → DenormalizeParams (shows @account/@repo)
+// mode "positional" → DenormalizeVars   (shows @1/@2)
+func displayVar(s, prefix string, params []string, mode string) string {
+	if mode == "positional" {
+		return store.DenormalizeVars(s, prefix)
+	}
+	return store.DenormalizeParams(s, prefix, params)
+}
+
 // formatParams returns "@1=account, @2=repo" style string, or "" if no params.
 func formatParams(prefix string, params []string) string {
 	if len(params) == 0 {
@@ -165,7 +172,7 @@ func formatParams(prefix string, params []string) string {
 // resolveLinkURL returns the display URL for a stored link ref.
 // Tries direct map lookup first (for exact keys and variable templates),
 // then falls back to the resolver (for concrete values like jira/PROJ-1).
-func resolveLinkURL(ref string, links []store.Link, aliases map[string]string, variablePrefix string) string {
+func resolveLinkURL(ref string, links []store.Link, variablePrefix string) string {
 	linkMap := make(map[string]store.Link, len(links))
 	for _, l := range links {
 		linkMap[l.Key] = l
@@ -174,27 +181,10 @@ func resolveLinkURL(ref string, links []store.Link, aliases map[string]string, v
 		return store.DenormalizeVars(link.URL, variablePrefix)
 	}
 	r := resolver.New(variablePrefix)
-	if result, err := r.Resolve(ref, links, aliases); err == nil {
+	if result, err := r.Resolve(ref, links); err == nil {
 		return result.URL
 	}
 	return ""
-}
-
-// loadLinksAndAliases loads links and the alias map for the given profile.
-func loadLinksAndAliases(profile string) ([]store.Link, map[string]string, error) {
-	links, err := store.ListLinks(config.ProfileLinksFile(profile))
-	if err != nil {
-		return nil, nil, err
-	}
-	af, err := store.LoadAliases(config.ProfileAliasesFile(profile))
-	if err != nil {
-		return nil, nil, err
-	}
-	aliases := map[string]string{}
-	if af != nil {
-		aliases = af.Aliases
-	}
-	return links, aliases, nil
 }
 
 // backupFile copies src to src+".bak". If src does not exist, it is a no-op.

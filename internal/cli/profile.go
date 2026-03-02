@@ -254,26 +254,17 @@ var profileViewCmd = &cobra.Command{
 
 		if detail {
 			links, _ := store.ListLinks(config.ProfileLinksFile(name))
-			aliasEntries, _ := store.ListAliases(config.ProfileAliasesFile(name))
-			aliasesMap := make(map[string]string, len(aliasEntries))
-			for _, a := range aliasEntries {
-				aliasesMap[a.Name] = a.LinkKey
-			}
 			groups, _ := store.ListGroups(config.ProfileGroupsFile(name))
 			fmt.Fprintf(w, "links (%d):\t\n", len(links))
 			for _, l := range links {
 				fmt.Fprintf(w, "  %s:\t%s\n", store.DenormalizeVars(l.Key, cfg.VariablePrefix), store.DenormalizeVars(l.URL, cfg.VariablePrefix))
-			}
-			fmt.Fprintf(w, "aliases (%d):\t\n", len(aliasEntries))
-			for _, a := range aliasEntries {
-				fmt.Fprintf(w, "  %s:\t%s\n", a.Name, a.LinkKey)
 			}
 			fmt.Fprintf(w, "groups (%d):\t\n", len(groups))
 			for _, g := range groups {
 				fmt.Fprintf(w, "  %s:\t\n", store.DenormalizeVars(g.Name, cfg.VariablePrefix))
 				for _, ref := range g.Links {
 					displayKey := store.DenormalizeVars(ref, cfg.VariablePrefix)
-					url := resolveLinkURL(ref, links, aliasesMap, cfg.VariablePrefix)
+					url := resolveLinkURL(ref, links, cfg.VariablePrefix)
 					if url != "" {
 						fmt.Fprintf(w, "    - %s:\t%s\n", displayKey, url)
 					} else {
@@ -283,10 +274,8 @@ var profileViewCmd = &cobra.Command{
 			}
 		} else {
 			links, _ := store.ListLinks(config.ProfileLinksFile(name))
-			aliasEntries, _ := store.ListAliases(config.ProfileAliasesFile(name))
 			groups, _ := store.ListGroups(config.ProfileGroupsFile(name))
 			fmt.Fprintf(w, "links:\t%d\n", len(links))
-			fmt.Fprintf(w, "aliases:\t%d\n", len(aliasEntries))
 			fmt.Fprintf(w, "groups:\t%d\n", len(groups))
 		}
 
@@ -295,15 +284,33 @@ var profileViewCmd = &cobra.Command{
 }
 
 func init() {
-	profileViewCmd.Flags().BoolP("detail", "d", false, "Show full lists of links, aliases, and groups")
+	profileViewCmd.Flags().BoolP("detail", "d", false, "Show full lists of links and groups")
 	profileViewCmd.Flags().BoolP("summary", "s", false, "Show summary only (overrides profile_view_mode=detail)")
 }
 
 var profileUseCmd = &cobra.Command{
-	Use:               "use <name>",
-	Short:             "Switch the active profile",
-	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: completeProfileNames,
+	Use:   "use <name>",
+	Short: "Switch the active profile",
+	Args:  cobra.MaximumNArgs(1),
+	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		profiles, err := config.ListProfiles()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		active, _ := config.GetActiveProfile()
+		completions := make([]string, len(profiles))
+		for i, p := range profiles {
+			if p == active {
+				completions[i] = p + "\t(*)"
+			} else {
+				completions[i] = p
+			}
+		}
+		return completions, cobra.ShellCompDirectiveNoFileComp
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()

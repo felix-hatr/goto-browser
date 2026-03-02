@@ -34,9 +34,9 @@ func init() {
 var openCmd = &cobra.Command{
 	Use:   "open <key>",
 	Short: "Open a link or group in the browser",
-	Long:  "Open a link key or alias in the browser. Use -g/--group to open a group as tabs.",
+	Long:  "Open a link key in the browser. Use -g/--group to open a group as tabs.",
 	Example: `  $ zebro open github/octocat/hello-world
-  $ zebro open gh/octocat/hello-world
+  $ zebro open jira/PROJ-123
   $ zebro open -g morning
   $ zebro open jira/PROJ-123 --dry-run`,
 	Args: cobra.MaximumNArgs(1),
@@ -65,13 +65,8 @@ func runOpenLinkKey(key string) error {
 		return err
 	}
 
-	af, err := store.LoadAliases(config.ProfileAliasesFile(profile))
-	if err != nil {
-		return err
-	}
-
 	r := resolver.New(cfg.VariablePrefix)
-	result, err := r.Resolve(key, links, af.Aliases)
+	result, err := r.Resolve(key, links)
 	if err != nil {
 		return err
 	}
@@ -106,12 +101,7 @@ func runOpenGroup(input string) error {
 		return err
 	}
 
-	af, err := store.LoadAliases(config.ProfileAliasesFile(profile))
-	if err != nil {
-		return err
-	}
-
-	urls, errs := r.ResolveGroupLinks(group.Links, groupVars, links, af.Aliases)
+	urls, errs := r.ResolveGroupLinks(group.Links, groupVars, links)
 	if len(errs) > 0 {
 		for _, e := range errs {
 			fmt.Printf("warning: %v\n", e)

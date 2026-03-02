@@ -22,6 +22,7 @@ type configKeyDef struct {
 var sharedConfigKeys = []configKeyDef{
 	{"browser", "Browser {chrome|brave|edge|arc|safari|whale} (default: chrome)", []string{"chrome", "brave", "edge", "arc", "safari", "whale"}, false},
 	{"variable_prefix", "Variable prefix character (default: @)", nil, false},
+	{"variable_display", "How variables are shown {named|positional} (default: named)", []string{"named", "positional"}, false},
 	{"open_mode", "How to open links {new_tab|new_window} (default: new_tab)", []string{"new_tab", "new_window"}, false},
 	{"profile_delete_mode", "How to delete profiles {backup|permanent} (default: backup)", []string{"backup", "permanent"}, false},
 	{"profile_view_mode", "Default view mode for profile view {summary|detail} (default: summary)", []string{"summary", "detail"}, false},
@@ -119,9 +120,27 @@ var configSetCmd = &cobra.Command{
 		}
 		if len(args) == 1 {
 			for _, k := range keys {
-				if k.key == args[0] && k.values != nil {
-					return k.values, cobra.ShellCompDirectiveNoFileComp
+				if k.key != args[0] || k.values == nil {
+					continue
 				}
+				// Load current value to mark it with (*)
+				var currentVal string
+				if configGlobalFlag {
+					if cfg, err := config.LoadGlobal(); err == nil {
+						currentVal, _ = cfg.Get(k.key)
+					}
+				} else if cfg, err := config.Load(); err == nil {
+					currentVal, _ = cfg.Get(k.key)
+				}
+				completions := make([]string, len(k.values))
+				for i, v := range k.values {
+					if v == currentVal {
+						completions[i] = v + "\t(*)"
+					} else {
+						completions[i] = v
+					}
+				}
+				return completions, cobra.ShellCompDirectiveNoFileComp
 			}
 		}
 		return nil, cobra.ShellCompDirectiveNoFileComp

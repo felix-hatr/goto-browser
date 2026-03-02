@@ -36,9 +36,9 @@ type segment struct {
 	value string // literal value or variable name/number
 }
 
-// Resolve takes an input string (possibly with alias), expands aliases,
-// matches against stored links, substitutes variables, and returns the final URL.
-func (r *Resolver) Resolve(input string, links []store.Link, aliases map[string]string) (*Result, error) {
+// Resolve matches the input string against stored links, substitutes variables,
+// and returns the final URL.
+func (r *Resolver) Resolve(input string, links []store.Link) (*Result, error) {
 	// Direct URL: strip trailing slash then pass through
 	if strings.Contains(input, "://") {
 		url := strings.TrimRight(input, "/")
@@ -48,11 +48,8 @@ func (r *Resolver) Resolve(input string, links []store.Link, aliases map[string]
 	// Normalize input: strip leading/trailing slashes
 	input = strings.Trim(input, "/")
 
-	// Expand alias on first segment
-	expanded := r.expandAlias(input, aliases)
-
 	// Parse input segments (empty segments from double-slash are dropped)
-	rawSegs := strings.Split(expanded, "/")
+	rawSegs := strings.Split(input, "/")
 	inputSegs := make([]string, 0, len(rawSegs))
 	for _, s := range rawSegs {
 		if s != "" {
@@ -84,7 +81,7 @@ func (r *Resolver) Resolve(input string, links []store.Link, aliases map[string]
 	}
 
 	if len(candidates) == 0 {
-		suggestions := r.suggest(expanded, links)
+		suggestions := r.suggest(input, links)
 		if len(suggestions) > 0 {
 			return nil, fmt.Errorf("no match for %q. Did you mean: %s", input, strings.Join(suggestions, ", "))
 		}
@@ -117,27 +114,6 @@ func (r *Resolver) Resolve(input string, links []store.Link, aliases map[string]
 	}
 
 	return &Result{URL: url, Pattern: best.link.Key, Vars: namedVars}, nil
-}
-
-// expandAlias replaces the first segment of input using the aliases map.
-func (r *Resolver) expandAlias(input string, aliases map[string]string) string {
-	if len(aliases) == 0 {
-		return input
-	}
-	idx := strings.Index(input, "/")
-	var first, rest string
-	if idx < 0 {
-		first = input
-		rest = ""
-	} else {
-		first = input[:idx]
-		rest = input[idx:] // includes the "/"
-	}
-
-	if target, ok := aliases[first]; ok {
-		return target + rest
-	}
-	return input
 }
 
 // parsePattern parses a link key pattern into segments.
@@ -219,7 +195,7 @@ func (r *Resolver) MatchGroup(input string, groups []store.Group) (*store.Group,
 // ResolveGroupLinks resolves all link templates in a group to URLs.
 // groupVars maps variable names (from group Params) to their bound values.
 // Templates with variables are substituted first, then resolved against the link store.
-func (r *Resolver) ResolveGroupLinks(linkTemplates []string, groupVars map[string]string, links []store.Link, aliases map[string]string) ([]string, []error) {
+func (r *Resolver) ResolveGroupLinks(linkTemplates []string, groupVars map[string]string, links []store.Link) ([]string, []error) {
 	urls := make([]string, 0, len(linkTemplates))
 	var errs []error
 
@@ -229,7 +205,7 @@ func (r *Resolver) ResolveGroupLinks(linkTemplates []string, groupVars map[strin
 		// Apply group variable bindings: @1 → value (positional) or @account → value (named)
 		concreteKey := r.substituteVars(denorm, groupVars)
 		// Resolve concrete key through the link store
-		result, err := r.Resolve(concreteKey, links, aliases)
+		result, err := r.Resolve(concreteKey, links)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("resolving %q: %w", store.DenormalizeVars(tmpl, r.variablePrefix), err))
 			continue

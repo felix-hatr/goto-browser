@@ -15,10 +15,11 @@ const defaultVariablePrefix = "@"
 // GlobalConfig holds the global zebro configuration.
 // active_profile is intentionally excluded — stored separately in .current_profile.
 type GlobalConfig struct {
-	Version        string `yaml:"version"`
-	Browser        string `yaml:"browser"`
-	VariablePrefix string `yaml:"variable_prefix"`
-	OpenMode       string `yaml:"open_mode"`
+	Version           string `yaml:"version"`
+	Browser           string `yaml:"browser"`
+	VariablePrefix    string `yaml:"variable_prefix"`
+	VariableDisplay   string `yaml:"variable_display"`
+	OpenMode          string `yaml:"open_mode"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode"`
 	ProfileViewMode   string `yaml:"profile_view_mode"`
 
@@ -33,6 +34,7 @@ type ProfileConfig struct {
 	Description       string `yaml:"description,omitempty"`
 	Browser           string `yaml:"browser,omitempty"`
 	VariablePrefix    string `yaml:"variable_prefix,omitempty"`
+	VariableDisplay   string `yaml:"variable_display,omitempty"`
 	OpenMode          string `yaml:"open_mode,omitempty"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode,omitempty"`
 	ProfileViewMode   string `yaml:"profile_view_mode,omitempty"`
@@ -55,6 +57,9 @@ func LoadGlobal() (*GlobalConfig, error) {
 	}
 	if cfg.VariablePrefix == "" {
 		cfg.VariablePrefix = defaultVariablePrefix
+	}
+	if cfg.VariableDisplay == "" {
+		cfg.VariableDisplay = "named"
 	}
 	if cfg.OpenMode == "" {
 		cfg.OpenMode = "new_tab"
@@ -89,6 +94,9 @@ func Load() (*GlobalConfig, error) {
 	if cfg.VariablePrefix == "" {
 		cfg.VariablePrefix = defaultVariablePrefix
 	}
+	if cfg.VariableDisplay == "" {
+		cfg.VariableDisplay = "named"
+	}
 	if cfg.OpenMode == "" {
 		cfg.OpenMode = "new_tab"
 	}
@@ -120,6 +128,9 @@ func applyProfileOverrides(global *GlobalConfig, profile *ProfileConfig) {
 	}
 	if profile.VariablePrefix != "" {
 		global.VariablePrefix = profile.VariablePrefix
+	}
+	if profile.VariableDisplay != "" {
+		global.VariableDisplay = profile.VariableDisplay
 	}
 	if profile.OpenMode != "" {
 		global.OpenMode = profile.OpenMode
@@ -178,6 +189,7 @@ func autoInit() (*GlobalConfig, error) {
 		Version:           "1",
 		Browser:           "chrome",
 		VariablePrefix:    defaultVariablePrefix,
+		VariableDisplay:   "named",
 		OpenMode:          "new_tab",
 		ProfileDeleteMode: "backup",
 		ProfileViewMode:   "summary",
@@ -222,9 +234,8 @@ func EnsureProfile(name, description string) error {
 	}
 
 	for path, content := range map[string]string{
-		ProfileLinksFile(name):   "version: \"1\"\nlinks: {}\n",
-		ProfileAliasesFile(name): "version: \"1\"\naliases: {}\n",
-		ProfileGroupsFile(name):  "version: \"1\"\ngroups: {}\n",
+		ProfileLinksFile(name):  "version: \"1\"\nlinks: {}\n",
+		ProfileGroupsFile(name): "version: \"1\"\ngroups: {}\n",
 	} {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			if err := writeEmptyFile(path, content); err != nil {
@@ -306,6 +317,8 @@ func (c *ProfileConfig) Get(key string) (string, error) {
 		return c.Browser, nil
 	case "variable_prefix":
 		return c.VariablePrefix, nil
+	case "variable_display":
+		return c.VariableDisplay, nil
 	case "open_mode":
 		return c.OpenMode, nil
 	case "profile_delete_mode":
@@ -313,7 +326,7 @@ func (c *ProfileConfig) Get(key string) (string, error) {
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
 	default:
-		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, open_mode, profile_delete_mode, profile_view_mode)", key)
+		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, profile_delete_mode, profile_view_mode)", key)
 	}
 }
 
@@ -329,6 +342,11 @@ func (c *ProfileConfig) Set(key, value string) error {
 			return err
 		}
 		c.VariablePrefix = value
+	case "variable_display":
+		if value != "named" && value != "positional" {
+			return fmt.Errorf("variable_display must be 'named' or 'positional'")
+		}
+		c.VariableDisplay = value
 	case "open_mode":
 		if value != "new_tab" && value != "new_window" {
 			return fmt.Errorf("open_mode must be 'new_tab' or 'new_window'")
@@ -345,7 +363,7 @@ func (c *ProfileConfig) Set(key, value string) error {
 		}
 		c.ProfileViewMode = value
 	default:
-		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, open_mode, profile_delete_mode, profile_view_mode)", key)
+		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, profile_delete_mode, profile_view_mode)", key)
 	}
 	return nil
 }
@@ -357,6 +375,8 @@ func (c *GlobalConfig) Get(key string) (string, error) {
 		return c.Browser, nil
 	case "variable_prefix":
 		return c.VariablePrefix, nil
+	case "variable_display":
+		return c.VariableDisplay, nil
 	case "open_mode":
 		return c.OpenMode, nil
 	case "profile_delete_mode":
@@ -364,7 +384,7 @@ func (c *GlobalConfig) Get(key string) (string, error) {
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
 	default:
-		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, open_mode, profile_delete_mode, profile_view_mode)", key)
+		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, profile_delete_mode, profile_view_mode)", key)
 	}
 }
 
@@ -378,6 +398,11 @@ func (c *GlobalConfig) Set(key, value string) error {
 			return err
 		}
 		c.VariablePrefix = value
+	case "variable_display":
+		if value != "named" && value != "positional" {
+			return fmt.Errorf("variable_display must be 'named' or 'positional'")
+		}
+		c.VariableDisplay = value
 	case "open_mode":
 		if value != "new_tab" && value != "new_window" {
 			return fmt.Errorf("open_mode must be 'new_tab' or 'new_window'")
@@ -394,7 +419,7 @@ func (c *GlobalConfig) Set(key, value string) error {
 		}
 		c.ProfileViewMode = value
 	default:
-		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, open_mode, profile_delete_mode, profile_view_mode)", key)
+		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, profile_delete_mode, profile_view_mode)", key)
 	}
 	return nil
 }

@@ -49,7 +49,7 @@ Link keys may reference the group's variables or be concrete.`,
 		nameToPos := store.NameToPos(params)
 
 		// Process link keys: normalize and apply group's variable mapping
-		posLinkKeys, err := normalizeGroupLinks(rawLinkKeys, cfg.VariablePrefix, nameToPos)
+		posLinkKeys, err := normalizeGroupLinks(rawLinkKeys, cfg.VariablePrefix, nameToPos, posName)
 		if err != nil {
 			return err
 		}
@@ -104,14 +104,25 @@ var groupListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tLINKS\tDESCRIPTION\tPARAMS")
-		fmt.Fprintln(w, "----\t-----\t-----------\t------")
-		for _, g := range groups {
-			fmt.Fprintf(w, "%s\t%d\t%s\t%s\n",
-				store.DenormalizeVars(g.Name, cfg.VariablePrefix),
-				len(g.Links),
-				g.Description,
-				formatParams(cfg.VariablePrefix, g.Params))
+		if cfg.VariableDisplay == "positional" {
+			fmt.Fprintln(w, "NAME\tLINKS\tDESCRIPTION\tPARAMS")
+			fmt.Fprintln(w, "----\t-----\t-----------\t------")
+			for _, g := range groups {
+				fmt.Fprintf(w, "%s\t%d\t%s\t%s\n",
+					store.DenormalizeVars(g.Name, cfg.VariablePrefix),
+					len(g.Links),
+					g.Description,
+					formatParams(cfg.VariablePrefix, g.Params))
+			}
+		} else {
+			fmt.Fprintln(w, "NAME\tLINKS\tDESCRIPTION")
+			fmt.Fprintln(w, "----\t-----\t-----------")
+			for _, g := range groups {
+				fmt.Fprintf(w, "%s\t%d\t%s\n",
+					store.DenormalizeParams(g.Name, cfg.VariablePrefix, g.Params),
+					len(g.Links),
+					g.Description)
+			}
 		}
 		return w.Flush()
 	},
@@ -137,23 +148,39 @@ var groupViewCmd = &cobra.Command{
 			return fmt.Errorf("group %q not found", args[0])
 		}
 
-		fmt.Printf("name:        %s\n", store.DenormalizeVars(group.Name, cfg.VariablePrefix))
-		if p := formatParams(cfg.VariablePrefix, group.Params); p != "" {
-			fmt.Printf("params:      %s\n", p)
+		fmt.Printf("name:        %s\n", displayVar(group.Name, cfg.VariablePrefix, group.Params, cfg.VariableDisplay))
+		if cfg.VariableDisplay == "positional" {
+			if p := formatParams(cfg.VariablePrefix, group.Params); p != "" {
+				fmt.Printf("params:      %s\n", p)
+			}
 		}
 		if group.Description != "" {
 			fmt.Printf("description: %s\n", group.Description)
 		}
-		links, aliasMap, err := loadLinksAndAliases(profile)
+		links, err := store.ListLinks(config.ProfileLinksFile(profile))
 		if err != nil {
 			return err
 		}
 
+		// Build a key→link map for O(1) lookup
+		linkMap := make(map[string]store.Link, len(links))
+		for _, lnk := range links {
+			linkMap[lnk.Key] = lnk
+		}
+
 		fmt.Printf("links (%d):\n", len(group.Links))
 		for _, l := range group.Links {
-			displayKey := store.DenormalizeVars(l, cfg.VariablePrefix)
-			if url := resolveLinkURL(l, links, aliasMap, cfg.VariablePrefix); url != "" {
-				fmt.Printf("  - %s → %s\n", displayKey, url)
+			displayKey := displayVar(l, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
+			var displayURL string
+			if lnk, ok := linkMap[l]; ok {
+				// Use group params for URL display — positions align with group vars
+				displayURL = displayVar(lnk.URL, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
+			} else {
+				// Direct URL or other: fall back to resolver-based lookup
+				displayURL = resolveLinkURL(l, links, cfg.VariablePrefix)
+			}
+			if displayURL != "" {
+				fmt.Printf("  - %s → %s\n", displayKey, displayURL)
 			} else {
 				fmt.Printf("  - %s\n", displayKey)
 			}
@@ -214,7 +241,7 @@ var groupAddCmd = &cobra.Command{
 		nameToPos := store.NameToPos(group.Params)
 
 		// Process new link keys using group's variable mapping
-		posLinkKeys, err := normalizeGroupLinks(rawLinkKeys, cfg.VariablePrefix, nameToPos)
+		posLinkKeys, err := normalizeGroupLinks(rawLinkKeys, cfg.VariablePrefix, nameToPos, group.Name)
 		if err != nil {
 			return err
 		}
@@ -275,25 +302,33 @@ func init() {
 	groupClearCmd.Flags().Bool("force", false, "Skip backup and delete immediately")
 }
 
-// normalizeGroupLinks normalizes a list of user-facing link keys to positional form
-// using the group's name→position mapping. Variable tokens not in the group are rejected.
-func normalizeGroupLinks(keys []string, variablePrefix string, nameToPos map[string]int) ([]string, error) {
+// normalizeGroupLinks normalizes a list of user-facing link keys to positional form.
+// posGroupName is the stored group name (may contain <vp>N tokens for positional groups).
+func normalizeGroupLinks(keys []string, variablePrefix string, nameToPos map[string]int, posGroupName string) ([]string, error) {
 	result := make([]string, len(keys))
+	isPositionalGroup := len(nameToPos) == 0 && store.HasVars(posGroupName)
 	for i, key := range keys {
 		norm := store.NormalizeVars(key, variablePrefix)
-		if len(nameToPos) == 0 {
-			// Concrete group: no variables allowed
-			if len(store.ExtractVarNames(norm)) > 0 {
-				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", key)
-			}
-			result[i] = norm
-		} else {
-			// Variable group: apply group's positional mapping
+		switch {
+		case len(nameToPos) > 0:
+			// Named variable group: map link vars to group positions
 			pos, err := store.ApplyPositional(norm, nameToPos)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", key, err)
 			}
 			result[i] = pos
+		case isPositionalGroup:
+			// Positional variable group (@1, @2): only positional refs allowed
+			if len(store.ExtractVarNames(norm)) > 0 {
+				return nil, fmt.Errorf("%q uses named variables — positional group requires @1, @2, ... style", key)
+			}
+			result[i] = norm
+		default:
+			// Concrete group: no variables allowed
+			if store.HasVars(norm) {
+				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", key)
+			}
+			result[i] = norm
 		}
 	}
 	return result, nil
@@ -307,10 +342,6 @@ func validateGroupLinks(profile, variablePrefix string, posLinkKeys []string) er
 	if err != nil {
 		return err
 	}
-	af, err := store.LoadAliases(config.ProfileAliasesFile(profile))
-	if err != nil {
-		return err
-	}
 
 	r := resolver.New(variablePrefix)
 	dummy := []string{"x", "x", "x", "x", "x", "x", "x", "x"}
@@ -318,7 +349,7 @@ func validateGroupLinks(profile, variablePrefix string, posLinkKeys []string) er
 	var invalid []string
 	for _, posKey := range posLinkKeys {
 		testKey := store.DenormalizeVars(store.FillPositional(posKey, dummy), variablePrefix)
-		if _, err := r.Resolve(testKey, links, af.Aliases); err != nil {
+		if _, err := r.Resolve(testKey, links); err != nil {
 			invalid = append(invalid, store.DenormalizeVars(posKey, variablePrefix))
 		}
 	}
@@ -355,7 +386,7 @@ func completeGroupNames(cmd *cobra.Command, args []string, toComplete string) ([
 
 	names := make([]string, len(groups))
 	for i, g := range groups {
-		names[i] = store.DenormalizeParams(g.Name, cfg.VariablePrefix, g.Params)
+		names[i] = displayVar(g.Name, cfg.VariablePrefix, g.Params, cfg.VariableDisplay)
 	}
 	return names, cobra.ShellCompDirectiveNoFileComp
 }

@@ -20,9 +20,10 @@ var (
 	positionalVarRe = regexp.MustCompile(regexp.QuoteMeta(VarToken) + `(\d+)`)
 )
 
-// buildVarPattern returns a regexp matching prefix+varname for any prefix.
+// buildVarPattern returns a regexp matching prefix+varname or prefix+digits.
+// Supports both named (@account) and positional (@1, @2) variable input.
 func buildVarPattern(prefix string) *regexp.Regexp {
-	return regexp.MustCompile(regexp.QuoteMeta(prefix) + `[A-Za-z_][A-Za-z0-9_]*`)
+	return regexp.MustCompile(regexp.QuoteMeta(prefix) + `(\d+|[A-Za-z_][A-Za-z0-9_]*)`)
 }
 
 // NormalizeVars replaces prefix+varname occurrences in s with VarToken+varname.
@@ -46,6 +47,7 @@ func ContainsVarToken(s, prefix string) bool {
 // NormalizeToPositional replaces named var tokens (<vp>name) with positional tokens
 // (<vp>1, <vp>2, ...) in order of first appearance.
 // Returns the positional string and params where params[i] = name for position i+1.
+// For purely positional input (<vp>1, <vp>2), result is unchanged and params is nil.
 func NormalizeToPositional(s string) (result string, params []string) {
 	nameToPos := map[string]int{}
 	result = namedVarRe.ReplaceAllStringFunc(s, func(m string) string {
@@ -57,6 +59,12 @@ func NormalizeToPositional(s string) (result string, params []string) {
 		return VarToken + strconv.Itoa(nameToPos[name])
 	})
 	return
+}
+
+// HasVars reports whether s contains any variable tokens (named or positional).
+// Use this to distinguish variable patterns from concrete keys.
+func HasVars(s string) bool {
+	return strings.Contains(s, VarToken)
 }
 
 // ApplyPositional applies an existing name→position mapping to s.
@@ -115,6 +123,21 @@ func NameToPos(params []string) map[string]int {
 		m[name] = i + 1
 	}
 	return m
+}
+
+// ExtractPositionalNums returns a sorted, deduplicated list of positional indices
+// found in s (e.g., [1, 2] for "github/<vp>1/<vp>2").
+func ExtractPositionalNums(s string) []int {
+	seen := map[int]bool{}
+	var nums []int
+	for _, m := range positionalVarRe.FindAllStringSubmatch(s, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && !seen[n] {
+			seen[n] = true
+			nums = append(nums, n)
+		}
+	}
+	sort.Ints(nums)
+	return nums
 }
 
 // ExtractVarNames returns a sorted, deduplicated list of named variable names

@@ -21,7 +21,7 @@ func TestResolve_ExactMatch(t *testing.T) {
 	links := []store.Link{
 		{Key: "github", URL: "https://github.com"},
 	}
-	result, err := r.Resolve("github", links, nil)
+	result, err := r.Resolve("github", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestResolve_VariableSubstitution(t *testing.T) {
 	links := []store.Link{
 		makeLink("github/@account/@repo", "https://github.com/@account/@repo"),
 	}
-	result, err := r.Resolve("github/me/my-repo", links, nil)
+	result, err := r.Resolve("github/me/my-repo", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -51,25 +51,10 @@ func TestResolve_VariableSubstitution(t *testing.T) {
 	}
 }
 
-func TestResolve_AliasExpansion(t *testing.T) {
-	r := New("@")
-	links := []store.Link{
-		makeLink("github/@account/@repo", "https://github.com/@account/@repo"),
-	}
-	aliases := map[string]string{"gh": "github"}
-	result, err := r.Resolve("gh/me/my-repo", links, aliases)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.URL != "https://github.com/me/my-repo" {
-		t.Errorf("expected https://github.com/me/my-repo, got %q", result.URL)
-	}
-}
-
 func TestResolve_DirectURL(t *testing.T) {
 	r := New("@")
 	links := []store.Link{}
-	result, err := r.Resolve("https://example.com/path", links, nil)
+	result, err := r.Resolve("https://example.com/path", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +69,7 @@ func TestResolve_MoreSpecificPatternWins(t *testing.T) {
 		makeLink("github/@account", "https://github.com/@account"),
 		makeLink("github/@account/@repo", "https://github.com/@account/@repo"),
 	}
-	result, err := r.Resolve("github/me/my-repo", links, nil)
+	result, err := r.Resolve("github/me/my-repo", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,7 +87,7 @@ func TestResolve_LiteralBeatsVariable(t *testing.T) {
 		makeLink("github/@account", "https://github.com/@account"),
 		{Key: "github/octocat", URL: "https://github.com/octocat"},
 	}
-	result, err := r.Resolve("github/octocat", links, nil)
+	result, err := r.Resolve("github/octocat", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +101,7 @@ func TestResolve_NoMatch(t *testing.T) {
 	links := []store.Link{
 		{Key: "github", URL: "https://github.com"},
 	}
-	_, err := r.Resolve("notexist", links, nil)
+	_, err := r.Resolve("notexist", links)
 	if err == nil {
 		t.Fatal("expected error for no match")
 	}
@@ -130,7 +115,7 @@ func TestResolve_CaretPrefix(t *testing.T) {
 	posURL, _ := store.ApplyPositional(normURL, store.NameToPos(params))
 	links := []store.Link{{Key: posKey, URL: posURL, Params: params}}
 
-	result, err := r.Resolve("jira/PROJ-123", links, nil)
+	result, err := r.Resolve("jira/PROJ-123", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,27 +144,12 @@ func TestLevenshtein(t *testing.T) {
 	}
 }
 
-func TestResolve_AliasOnly(t *testing.T) {
-	r := New("@")
-	links := []store.Link{
-		{Key: "google", URL: "https://google.com"},
-	}
-	aliases := map[string]string{"g": "google"}
-	result, err := r.Resolve("g", links, aliases)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.URL != "https://google.com" {
-		t.Errorf("expected https://google.com, got %q", result.URL)
-	}
-}
-
 func TestResolve_TrailingSlashInput(t *testing.T) {
 	r := New("@")
 	links := []store.Link{
 		makeLink("github/@account/@repo", "https://github.com/@account/@repo"),
 	}
-	result, err := r.Resolve("github/octocat/hello-world/", links, nil)
+	result, err := r.Resolve("github/octocat/hello-world/", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -193,7 +163,7 @@ func TestResolve_TrailingSlashURL(t *testing.T) {
 	links := []store.Link{
 		{Key: "github", URL: "https://github.com/"},
 	}
-	result, err := r.Resolve("github", links, nil)
+	result, err := r.Resolve("github", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -204,7 +174,7 @@ func TestResolve_TrailingSlashURL(t *testing.T) {
 
 func TestResolve_DirectURLTrailingSlash(t *testing.T) {
 	r := New("@")
-	result, err := r.Resolve("https://example.com/path/", nil, nil)
+	result, err := r.Resolve("https://example.com/path/", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,27 +183,12 @@ func TestResolve_DirectURLTrailingSlash(t *testing.T) {
 	}
 }
 
-func TestResolve_MultiLevelAlias(t *testing.T) {
-	r := New("@")
-	links := []store.Link{
-		makeLink("github/@account/@repo/pr/@number", "https://github.com/@account/@repo/pull/@number"),
-	}
-	aliases := map[string]string{"gh": "github"}
-	result, err := r.Resolve("gh/octocat/hello-world/pr/42", links, aliases)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.URL != "https://github.com/octocat/hello-world/pull/42" {
-		t.Errorf("unexpected URL: %q", result.URL)
-	}
-}
-
 func TestResolve_PositionalStorage(t *testing.T) {
 	r := New("@")
 	links := []store.Link{
 		makeLink("github/@account/@repo", "https://github.com/@account/@repo"),
 	}
-	result, err := r.Resolve("github/octocat/hello-world", links, nil)
+	result, err := r.Resolve("github/octocat/hello-world", links)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -313,7 +268,7 @@ func TestResolveGroupLinks_WithVariables(t *testing.T) {
 	// Positional vars: "1" = @1, "2" = @2 (as returned by MatchGroup)
 	groupVars := map[string]string{"1": "myorg", "2": "myrepo"}
 
-	urls, errs := r.ResolveGroupLinks(groupLinks, groupVars, links, nil)
+	urls, errs := r.ResolveGroupLinks(groupLinks, groupVars, links)
 	if len(errs) > 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}

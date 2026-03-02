@@ -132,16 +132,16 @@ func copyFilesBetweenDirs(srcDir, dstDir string, names []string) error {
 	return nil
 }
 
-// copyProfileDataFromDir copies links, aliases, groups, and config from a backup dir to a profile.
+// copyProfileDataFromDir copies links, groups, and config from a backup dir to a profile.
 func copyProfileDataFromDir(srcDir, dstProfile string) error {
 	return copyFilesBetweenDirs(srcDir, config.ProfileDir(dstProfile),
-		[]string{"links.yaml", "aliases.yaml", "groups.yaml", "config.yaml"})
+		[]string{"links.yaml", "groups.yaml", "config.yaml"})
 }
 
 // backupProfileToDir copies all profile files to a backup directory.
 func backupProfileToDir(profileName, bakDir string) error {
 	return copyFilesBetweenDirs(config.ProfileDir(profileName), bakDir,
-		[]string{"links.yaml", "aliases.yaml", "groups.yaml", "config.yaml"})
+		[]string{"links.yaml", "groups.yaml", "config.yaml"})
 }
 
 // completeBackupProfileNames returns profile names that have backups, for tab completion.
@@ -180,7 +180,7 @@ func init() {
 		profileBackupDeleteCmd,
 		profileBackupClearCmd,
 	)
-	profileBackupViewCmd.Flags().BoolP("detail", "d", false, "Show full lists of links, aliases, and groups")
+	profileBackupViewCmd.Flags().BoolP("detail", "d", false, "Show full lists of links and groups")
 	profileBackupRestoreCmd.Flags().String("from", "", "Backup timestamp to restore from (default: latest)")
 	profileBackupRestoreCmd.Flags().String("as", "", "Restore as a different profile name")
 	profileBackupRestoreCmd.Flags().BoolP("force", "f", false, "Overwrite if profile already exists")
@@ -255,7 +255,7 @@ var profileBackupListCmd = &cobra.Command{
 var profileBackupViewCmd = &cobra.Command{
 	Use:   "view <name> <ts>",
 	Short: "Show contents of a backup",
-	Long:  "Show the links, aliases, and groups stored in a specific backup.",
+	Long:  "Show the links and groups stored in a specific backup.",
 	Example: `  $ zebro profile backup view work 20260302-151524
   $ zebro profile backup view work 20260302-151524 -d`,
 	Args: cobra.MaximumNArgs(2),
@@ -296,7 +296,6 @@ var profileBackupViewCmd = &cobra.Command{
 		detail, _ := cmd.Flags().GetBool("detail")
 
 		linksFile := filepath.Join(bak.Path, "links.yaml")
-		aliasesFile := filepath.Join(bak.Path, "aliases.yaml")
 		groupsFile := filepath.Join(bak.Path, "groups.yaml")
 
 		// Load variable prefix from backup's own config
@@ -314,26 +313,17 @@ var profileBackupViewCmd = &cobra.Command{
 
 		if detail {
 			links, _ := store.ListLinks(linksFile)
-			aliasEntries, _ := store.ListAliases(aliasesFile)
-			aliasesMap := make(map[string]string, len(aliasEntries))
-			for _, a := range aliasEntries {
-				aliasesMap[a.Name] = a.LinkKey
-			}
 			groups, _ := store.ListGroups(groupsFile)
 			fmt.Fprintf(w, "links (%d):\t\n", len(links))
 			for _, l := range links {
 				fmt.Fprintf(w, "  %s:\t%s\n", store.DenormalizeVars(l.Key, prefix), store.DenormalizeVars(l.URL, prefix))
-			}
-			fmt.Fprintf(w, "aliases (%d):\t\n", len(aliasEntries))
-			for _, a := range aliasEntries {
-				fmt.Fprintf(w, "  %s:\t%s\n", a.Name, a.LinkKey)
 			}
 			fmt.Fprintf(w, "groups (%d):\t\n", len(groups))
 			for _, g := range groups {
 				fmt.Fprintf(w, "  %s:\t\n", store.DenormalizeVars(g.Name, prefix))
 				for _, ref := range g.Links {
 					displayKey := store.DenormalizeVars(ref, prefix)
-					url := resolveLinkURL(ref, links, aliasesMap, prefix)
+					url := resolveLinkURL(ref, links, prefix)
 					if url != "" {
 						fmt.Fprintf(w, "    - %s:\t%s\n", displayKey, url)
 					} else {
@@ -343,10 +333,8 @@ var profileBackupViewCmd = &cobra.Command{
 			}
 		} else {
 			links, _ := store.ListLinks(linksFile)
-			aliasEntries, _ := store.ListAliases(aliasesFile)
 			groups, _ := store.ListGroups(groupsFile)
 			fmt.Fprintf(w, "links:\t%d\n", len(links))
-			fmt.Fprintf(w, "aliases:\t%d\n", len(aliasEntries))
 			fmt.Fprintf(w, "groups:\t%d\n", len(groups))
 		}
 

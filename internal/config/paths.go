@@ -48,11 +48,6 @@ func ProfileLinksFile(name string) string {
 	return filepath.Join(ProfileDir(name), "links.yaml")
 }
 
-// ProfileAliasesFile returns the aliases.yaml path for a profile.
-func ProfileAliasesFile(name string) string {
-	return filepath.Join(ProfileDir(name), "aliases.yaml")
-}
-
 // ProfileGroupsFile returns the groups.yaml path for a profile.
 func ProfileGroupsFile(name string) string {
 	return filepath.Join(ProfileDir(name), "groups.yaml")
