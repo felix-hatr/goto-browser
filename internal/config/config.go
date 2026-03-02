@@ -17,7 +17,6 @@ const defaultVariablePrefix = "@"
 type GlobalConfig struct {
 	Version        string `yaml:"version"`
 	Browser        string `yaml:"browser"`
-	BrowserProfile string `yaml:"browser_profile"`
 	VariablePrefix string `yaml:"variable_prefix"`
 	OpenMode       string `yaml:"open_mode"`
 
@@ -26,11 +25,13 @@ type GlobalConfig struct {
 }
 
 // ProfileConfig holds per-profile configuration.
+// Non-empty fields override the corresponding global config values.
 type ProfileConfig struct {
 	Name           string `yaml:"name"`
 	Description    string `yaml:"description,omitempty"`
 	Browser        string `yaml:"browser,omitempty"`
-	BrowserProfile string `yaml:"browser_profile,omitempty"`
+	VariablePrefix string `yaml:"variable_prefix,omitempty"`
+	OpenMode       string `yaml:"open_mode,omitempty"`
 }
 
 // Load loads the global config, auto-initializing if not present.
@@ -64,7 +65,25 @@ func Load() (*GlobalConfig, error) {
 		cfg.ActiveProfile = "default"
 	}
 
+	// Apply profile-level overrides onto global config
+	if pc, err := LoadProfile(cfg.ActiveProfile); err == nil {
+		applyProfileOverrides(&cfg, pc)
+	}
+
 	return &cfg, nil
+}
+
+// applyProfileOverrides overlays non-empty profile config values onto global config.
+func applyProfileOverrides(global *GlobalConfig, profile *ProfileConfig) {
+	if profile.Browser != "" {
+		global.Browser = profile.Browser
+	}
+	if profile.VariablePrefix != "" {
+		global.VariablePrefix = profile.VariablePrefix
+	}
+	if profile.OpenMode != "" {
+		global.OpenMode = profile.OpenMode
+	}
 }
 
 // Save writes the global config to disk (excludes ActiveProfile).
@@ -112,7 +131,6 @@ func autoInit() (*GlobalConfig, error) {
 	cfg := &GlobalConfig{
 		Version:        "1",
 		Browser:        "chrome",
-		BrowserProfile: "Default",
 		VariablePrefix: defaultVariablePrefix,
 		OpenMode:       "new_tab",
 		ActiveProfile:  "default",
@@ -231,29 +249,29 @@ func ProfileExists(name string) bool {
 	return err == nil
 }
 
-// Get returns a config value by key.
-func (c *GlobalConfig) Get(key string) (string, error) {
+// Get returns a profile config value by key.
+func (c *ProfileConfig) Get(key string) (string, error) {
 	switch key {
+	case "description":
+		return c.Description, nil
 	case "browser":
 		return c.Browser, nil
-	case "browser_profile":
-		return c.BrowserProfile, nil
 	case "variable_prefix":
 		return c.VariablePrefix, nil
 	case "open_mode":
 		return c.OpenMode, nil
 	default:
-		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, browser_profile, variable_prefix, open_mode)", key)
+		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, open_mode)", key)
 	}
 }
 
-// Set updates a config value by key.
-func (c *GlobalConfig) Set(key, value string) error {
+// Set updates a profile config value by key.
+func (c *ProfileConfig) Set(key, value string) error {
 	switch key {
+	case "description":
+		c.Description = value
 	case "browser":
 		c.Browser = value
-	case "browser_profile":
-		c.BrowserProfile = value
 	case "variable_prefix":
 		if err := validateVariablePrefix(value); err != nil {
 			return err
@@ -265,7 +283,42 @@ func (c *GlobalConfig) Set(key, value string) error {
 		}
 		c.OpenMode = value
 	default:
-		return fmt.Errorf("unknown config key: %q (valid keys: browser, browser_profile, variable_prefix, open_mode)", key)
+		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, open_mode)", key)
+	}
+	return nil
+}
+
+// Get returns a global config value by key.
+func (c *GlobalConfig) Get(key string) (string, error) {
+	switch key {
+	case "browser":
+		return c.Browser, nil
+	case "variable_prefix":
+		return c.VariablePrefix, nil
+	case "open_mode":
+		return c.OpenMode, nil
+	default:
+		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, open_mode)", key)
+	}
+}
+
+// Set updates a config value by key.
+func (c *GlobalConfig) Set(key, value string) error {
+	switch key {
+	case "browser":
+		c.Browser = value
+	case "variable_prefix":
+		if err := validateVariablePrefix(value); err != nil {
+			return err
+		}
+		c.VariablePrefix = value
+	case "open_mode":
+		if value != "new_tab" && value != "new_window" {
+			return fmt.Errorf("open_mode must be 'new_tab' or 'new_window'")
+		}
+		c.OpenMode = value
+	default:
+		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, open_mode)", key)
 	}
 	return nil
 }

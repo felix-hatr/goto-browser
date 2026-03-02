@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/felix-hatr/goto-browser/internal/config"
 	"github.com/felix-hatr/goto-browser/internal/resolver"
@@ -32,9 +33,43 @@ var rootCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
+const zebroHelpTemplate = `{{with (or .Long .Short)}}{{. | trimRightSpace}}
+
+{{end -}}
+USAGE{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} <subcommand> [flags]{{end}}{{if .HasAvailableSubCommands}}
+
+COMMANDS{{range .Commands}}{{if .IsAvailableCommand}}
+  {{colonpad .Name (add .NamePadding 3)}}{{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+FLAGS
+{{.LocalFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+INHERITED FLAGS
+{{.InheritedFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasExample}}
+
+EXAMPLES
+{{.Example | trimRightSpace}}{{end}}{{if .HasAvailableSubCommands}}
+
+LEARN MORE
+  Use "{{.CommandPath}} <subcommand> --help" for more information about a command.{{end}}
+`
+
 func init() {
+	cobra.AddTemplateFunc("add", func(a, b int) int { return a + b })
+	cobra.AddTemplateFunc("colonpad", func(s string, n int) string {
+		s = s + ":"
+		if len(s) >= n {
+			return s
+		}
+		return s + strings.Repeat(" ", n-len(s))
+	})
+
 	rootCmd.PersistentFlags().StringVarP(&profileFlag, "profile", "p", "", "Profile to use (overrides active profile)")
 	rootCmd.Version = Version
+	rootCmd.CompletionOptions.HiddenDefaultCmd = true
+	rootCmd.SetHelpTemplate(zebroHelpTemplate)
 
 	rootCmd.AddCommand(
 		linkCmd,
@@ -44,25 +79,74 @@ func init() {
 		openCmd,
 		configCmd,
 		doctorCmd,
+		completionCmd,
 	)
 
 	defaultHelp := rootCmd.HelpFunc()
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		if cmd == rootCmd {
-			p := "@"
-			if cfg, err := config.Load(); err == nil {
-				p = cfg.VariablePrefix
-			}
-			cmd.Long = fmt.Sprintf(`zebro stores URL patterns with variables and opens them in your browser.
-
-Examples:
-  zebro link create github/%[1]saccount/%[1]srepo https://github.com/%[1]saccount/%[1]srepo
-  zebro open github/octocat/hello-world
-
-Tip: add a shell alias for quick access:
-  alias g='zebro open'`, p)
+		if cmd != rootCmd {
+			defaultHelp(cmd, args)
+			return
 		}
-		defaultHelp(cmd, args)
+
+		p := "@"
+		if cfg, err := config.Load(); err == nil {
+			p = cfg.VariablePrefix
+		}
+
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+
+		fmt.Fprintln(w, "zebro — URL shortcut manager with variable patterns.")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "USAGE")
+		fmt.Fprintln(w, "  zebro <command> <subcommand> [flags]")
+		fmt.Fprintln(w, "")
+
+		fmt.Fprintln(w, "COMMANDS")
+		fmt.Fprintln(w, "  open:\tOpen a link or group in the browser")
+		fmt.Fprintln(w, "")
+
+		fmt.Fprintln(w, "RESOURCE COMMANDS")
+		fmt.Fprintln(w, "  link:\tManage links")
+		fmt.Fprintln(w, "  alias:\tManage aliases")
+		fmt.Fprintln(w, "  group:\tManage groups")
+		fmt.Fprintln(w, "  profile:\tManage profiles")
+		fmt.Fprintln(w, "")
+
+		fmt.Fprintln(w, "UTILITY COMMANDS")
+		fmt.Fprintln(w, "  config:\tManage configuration")
+		fmt.Fprintln(w, "  doctor:\tRun diagnostics on your zebro setup")
+		fmt.Fprintln(w, "  completion:\tGenerate shell completion script")
+		fmt.Fprintln(w, "")
+
+		fmt.Fprintln(w, "FLAGS")
+		fmt.Fprintln(w, "  -h, --help\tShow help for command")
+		fmt.Fprintln(w, "  -p, --profile string\tProfile to use (overrides active profile)")
+		fmt.Fprintln(w, "  -v, --version\tShow zebro version")
+		fmt.Fprintln(w, "")
+
+		fmt.Fprintf(w, "EXAMPLES\n")
+		fmt.Fprintf(w, "  $ zebro link create github/%[1]saccount/%[1]srepo https://github.com/%[1]saccount/%[1]srepo\n", p)
+		fmt.Fprintf(w, "  $ zebro open github/octocat/hello-world\n")
+		fmt.Fprintf(w, "  $ zebro open -g morning\n")
+		fmt.Fprintf(w, "  $ zebro alias create gh github\n")
+		fmt.Fprintln(w, "")
+
+		fmt.Fprintln(w, "LEARN MORE")
+		fmt.Fprintln(w, "  Use `zebro <command> --help` for more information about a command.")
+		fmt.Fprintln(w, "  Tip: alias g='zebro open'")
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "SHELL COMPLETION")
+		switch detectShell() {
+		case "fish":
+			fmt.Fprintln(w, "  zebro completion -s fish > ~/.config/fish/completions/zebro.fish")
+		case "bash":
+			fmt.Fprintln(w, "  echo 'source <(zebro completion)' >> ~/.bashrc")
+		default: // zsh
+			fmt.Fprintln(w, "  echo 'source <(zebro completion)' >> ~/.zshrc")
+		}
+
+		w.Flush()
 	})
 }
 

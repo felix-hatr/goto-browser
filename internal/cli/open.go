@@ -34,13 +34,11 @@ func init() {
 var openCmd = &cobra.Command{
 	Use:   "open <key>",
 	Short: "Open a link or group in the browser",
-	Long: `Open a link key (or alias) in the browser.
-Use -g to open a group as tabs.
-
-Examples:
-  zebro open github/octocat/hello-world
-  zebro open gh/octocat/hello-world
-  zebro open -g morning`,
+	Long:  "Open a link key or alias in the browser. Use -g/--group to open a group as tabs.",
+	Example: `  $ zebro open github/octocat/hello-world
+  $ zebro open gh/octocat/hello-world
+  $ zebro open -g morning
+  $ zebro open jira/PROJ-123 --dry-run`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if openNewWindow && openNewTab {
@@ -142,7 +140,6 @@ func runOpenGroup(input string) error {
 
 	return b.OpenURLs(urls, browser.OpenOptions{
 		NewWindow: true,
-		Profile:   cfg.BrowserProfile,
 	})
 }
 
@@ -164,7 +161,6 @@ func openURLWithConfig(cfg *config.GlobalConfig, url string) error {
 
 	opts := browser.OpenOptions{
 		NewWindow: openNewWindow,
-		Profile:   cfg.BrowserProfile,
 	}
 	if openNewTab {
 		opts.NewWindow = false

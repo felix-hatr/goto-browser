@@ -12,9 +12,12 @@ import (
 )
 
 var doctorCmd = &cobra.Command{
-	Use:   "doctor",
-	Short: "Run diagnostics on your zebro setup",
-	Args:  cobra.NoArgs,
+	Use:     "doctor",
+	Short:   "Run diagnostics on your zebro setup",
+	Long:    "Check your zebro setup for common configuration issues.",
+	Example: `  $ zebro doctor
+  $ zebro doctor -p work`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		hasWarning := false
 

@@ -13,5 +13,4 @@ type Browser interface {
 // OpenOptions controls how URLs are opened.
 type OpenOptions struct {
 	NewWindow bool
-	Profile   string // browser-native profile name
 }

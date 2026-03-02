@@ -14,6 +14,7 @@ import (
 var linkCmd = &cobra.Command{
 	Use:   "link",
 	Short: "Manage links",
+	Long:  "Manage links — URL patterns with optional variable placeholders.",
 }
 
 func init() {
@@ -24,12 +25,10 @@ func init() {
 var linkCreateCmd = &cobra.Command{
 	Use:   "create <key> <url>",
 	Short: "Add or update a link",
-	Long: `Add a link with an optional description.
-
-Examples:
-  zebro link create github https://github.com
-  zebro link create github/@account/@repo https://github.com/@account/@repo
-  zebro link create jira/@ticket https://jira.company.com/browse/@ticket --description "Jira issue"`,
+	Long:  "Add a link with an optional description. Variable patterns use the configured prefix (default: @).",
+	Example: `  $ zebro link create github https://github.com
+  $ zebro link create github/@account/@repo https://github.com/@account/@repo
+  $ zebro link create jira/@ticket https://jira.company.com/browse/@ticket -d "Jira issue"`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile, cfg, err := currentProfile()

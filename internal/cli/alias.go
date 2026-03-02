@@ -14,6 +14,7 @@ import (
 var aliasCmd = &cobra.Command{
 	Use:   "alias",
 	Short: "Manage aliases",
+	Long:  "Manage aliases — short names that expand to link key prefixes.",
 }
 
 func init() {
@@ -23,14 +24,10 @@ func init() {
 var aliasCreateCmd = &cobra.Command{
 	Use:   "create <name> <link-key>",
 	Short: "Create an alias for a link key",
-	Long: `Create a short alias that expands to a link key prefix.
-
-Examples:
-  zebro alias create gh github
-  zebro alias create g google
-
-Then use:
-  zebro open gh/octocat/hello-world   # expands to github/octocat/hello-world`,
+	Long:  "Create a short alias that expands to a link key prefix.",
+	Example: `  $ zebro alias create gh github
+  $ zebro alias create g google
+  $ zebro open gh/octocat/hello-world   # expands to github/octocat/hello-world`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile, cfg, err := currentProfile()

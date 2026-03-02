@@ -11,6 +11,7 @@ import (
 var profileCmd = &cobra.Command{
 	Use:   "profile",
 	Short: "Manage profiles",
+	Long:  "Manage profiles — isolated sets of links, aliases, and groups.",
 }
 
 func init() {
@@ -104,9 +105,6 @@ var profileViewCmd = &cobra.Command{
 		fmt.Printf("description: %s\n", p.Description)
 		if p.Browser != "" {
 			fmt.Printf("browser:     %s\n", p.Browser)
-		}
-		if p.BrowserProfile != "" {
-			fmt.Printf("browser_profile: %s\n", p.BrowserProfile)
 		}
 		active := ""
 		if name == cfg.ActiveProfile {

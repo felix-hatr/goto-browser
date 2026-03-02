@@ -15,6 +15,7 @@ import (
 var groupCmd = &cobra.Command{
 	Use:   "group",
 	Short: "Manage groups",
+	Long:  "Manage groups — named collections of links that open together.",
 }
 
 func init() {
@@ -28,11 +29,9 @@ var groupCreateCmd = &cobra.Command{
 	Short: "Create a new group",
 	Long: `Create a named group of links that can be opened together.
 The group name may include variables (e.g. dev/@account/@repo).
-Link keys may reference the group's variables or be concrete.
-
-Examples:
-  zebro group create morning github jira/PROJ-100
-  zebro group create dev/@account/@repo github/@account github/@account/@repo`,
+Link keys may reference the group's variables or be concrete.`,
+	Example: `  $ zebro group create morning github jira/PROJ-100
+  $ zebro group create dev/@account/@repo github/@account github/@account/@repo`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile, cfg, err := currentProfile()
