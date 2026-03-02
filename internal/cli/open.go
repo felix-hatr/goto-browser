@@ -16,6 +16,7 @@ var openDryRun bool
 var openBrowserOverride string
 var openGroupFlag string
 var openLinkFlag string
+var openURLFlag string
 
 func init() {
 	openCmd.Flags().BoolVarP(&openNewWindow, "new-window", "n", false, "Open in a new window (overrides config open_mode)")
@@ -24,6 +25,10 @@ func init() {
 	openCmd.Flags().StringVarP(&openBrowserOverride, "browser", "b", "", "Browser to use for this command")
 	openCmd.Flags().StringVarP(&openGroupFlag, "group", "g", "", "Open a group by name")
 	openCmd.Flags().StringVarP(&openLinkFlag, "link", "l", "", "Open a link by key")
+	openCmd.Flags().StringVarP(&openURLFlag, "url", "u", "", "Open a direct URL")
+
+	openCmd.RegisterFlagCompletionFunc("link", completeLinkKeysFlag)
+	openCmd.RegisterFlagCompletionFunc("group", completeGroupNamesFlag)
 
 	openCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if openGroupFlag != "" {
@@ -40,40 +45,60 @@ func init() {
 	}
 }
 
+// completeLinkKeysFlag completes link keys for flag values (no args guard).
+func completeLinkKeysFlag(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	return completeLinkKeysAll(nil, nil, "")
+}
+
+// completeGroupNamesFlag completes group names for flag values (no args guard).
+func completeGroupNamesFlag(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	profile, cfg, err := currentProfile()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	groups, err := store.ListGroups(config.ProfileGroupsFile(profile))
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	names := make([]string, len(groups))
+	for i, g := range groups {
+		names[i] = displayVar(g.Name, cfg.VariablePrefix, g.Params, cfg.VariableDisplay)
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
 var openCmd = &cobra.Command{
 	Use:   "open [key]",
 	Short: "Open a link or group in the browser",
 	Long: `Open a link key or group in the browser.
 
-Use -l/--link to open a link, or -g/--group to open a group.
-Without a flag, the positional argument is treated as a link or group
+Use -l/--link to open a link, -g/--group to open a group, or -u/--url to open a direct URL.
+Without a flag, the positional argument is treated as a link, group, or URL
 based on the open_default config setting (default: link).`,
 	Example: `  $ zebro open github/octocat/hello-world
   $ zebro open jira/PROJ-123
   $ zebro open -g morning
   $ zebro open -l github/octocat/hello-world
+  $ zebro open -u https://example.com
   $ zebro open jira/PROJ-123 --dry-run`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if openNewWindow && openNewTab {
 			return fmt.Errorf("--new-window and --new-tab are mutually exclusive")
 		}
-		if openGroupFlag != "" && openLinkFlag != "" {
-			return fmt.Errorf("-g/--group and -l/--link are mutually exclusive")
+		// Mutual exclusion among -g, -l, -u
+		flagCount := 0
+		if openGroupFlag != "" {
+			flagCount++
 		}
-
-		// Determine target and type before loading config
-		var target string
-		var asGroup bool
-		switch {
-		case openGroupFlag != "":
-			target, asGroup = openGroupFlag, true
-		case openLinkFlag != "":
-			target, asGroup = openLinkFlag, false
-		case len(args) == 1:
-			target = args[0]
-		default:
-			return cmd.Help()
+		if openLinkFlag != "" {
+			flagCount++
+		}
+		if openURLFlag != "" {
+			flagCount++
+		}
+		if flagCount > 1 {
+			return fmt.Errorf("-g/--group, -l/--link, and -u/--url are mutually exclusive")
 		}
 
 		// Load config once for all paths
@@ -82,15 +107,27 @@ based on the open_default config setting (default: link).`,
 			return err
 		}
 
-		// For positional arg, use open_default
-		if openGroupFlag == "" && openLinkFlag == "" {
-			asGroup = cfg.OpenDefault == "group"
+		switch {
+		case openURLFlag != "":
+			return openURLWithConfig(cfg, openURLFlag)
+		case openGroupFlag != "":
+			return runOpenGroup(openGroupFlag, profile, cfg)
+		case openLinkFlag != "":
+			return runOpenLinkKey(openLinkFlag, profile, cfg)
+		case len(args) == 1:
+			target := args[0]
+			switch cfg.OpenDefault {
+			case "group":
+				return runOpenGroup(target, profile, cfg)
+			case "url":
+				return openURLWithConfig(cfg, target)
+			default:
+				// Check if it looks like a URL and open_default=url is set via positional detection
+				return runOpenLinkKey(target, profile, cfg)
+			}
+		default:
+			return cmd.Help()
 		}
-
-		if asGroup {
-			return runOpenGroup(target, profile, cfg)
-		}
-		return runOpenLinkKey(target, profile, cfg)
 	},
 }
 

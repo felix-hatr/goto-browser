@@ -350,8 +350,8 @@ func (c *ProfileConfig) Set(key, value string) error {
 		}
 		c.OpenMode = value
 	case "open_default":
-		if value != "link" && value != "group" {
-			return fmt.Errorf("open_default must be 'link' or 'group'")
+		if value != "link" && value != "group" && value != "url" {
+			return fmt.Errorf("open_default must be 'link', 'group', or 'url'")
 		}
 		c.OpenDefault = value
 	case "profile_delete_mode":
@@ -413,8 +413,8 @@ func (c *GlobalConfig) Set(key, value string) error {
 		}
 		c.OpenMode = value
 	case "open_default":
-		if value != "link" && value != "group" {
-			return fmt.Errorf("open_default must be 'link' or 'group'")
+		if value != "link" && value != "group" && value != "url" {
+			return fmt.Errorf("open_default must be 'link', 'group', or 'url'")
 		}
 		c.OpenDefault = value
 	case "profile_delete_mode":

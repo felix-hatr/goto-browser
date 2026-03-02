@@ -24,7 +24,7 @@ var sharedConfigKeys = []configKeyDef{
 	{"variable_prefix", "Variable prefix character (default: @)", nil, false},
 	{"variable_display", "How variables are shown {named|positional} (default: named)", []string{"named", "positional"}, false},
 	{"open_mode", "How to open links {new_tab|new_window} (default: new_tab)", []string{"new_tab", "new_window"}, false},
-	{"open_default", "Default open target when no flag given {link|group} (default: link)", []string{"link", "group"}, false},
+	{"open_default", "Default open target when no flag given {link|group|url} (default: link)", []string{"link", "group", "url"}, false},
 	{"profile_delete_mode", "How to delete profiles {backup|permanent} (default: backup)", []string{"backup", "permanent"}, false},
 	{"profile_view_mode", "Default view mode for profile view {summary|detail} (default: summary)", []string{"summary", "detail"}, false},
 	{"description", "Profile description (profile only)", nil, true},
