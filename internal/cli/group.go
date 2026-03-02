@@ -176,10 +176,14 @@ var groupDeleteCmd = &cobra.Command{
 		normName := store.NormalizeVars(args[0], cfg.VariablePrefix)
 		posName, _ := store.NormalizeToPositional(normName)
 
-		if err := store.RemoveGroup(config.ProfileGroupsFile(profile), posName); err != nil {
+		prev, err := store.GetGroup(config.ProfileGroupsFile(profile), posName)
+		if err != nil {
 			return fmt.Errorf("group %q not found", args[0])
 		}
-		fmt.Printf("removed group %q\n", args[0])
+		if err := store.RemoveGroup(config.ProfileGroupsFile(profile), posName); err != nil {
+			return err
+		}
+		fmt.Printf("removed group %q: [%s]\n", args[0], denormalizeGroupLinks(prev.Links, cfg.VariablePrefix, prev.Params))
 		return nil
 	},
 }

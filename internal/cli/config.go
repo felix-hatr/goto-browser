@@ -209,6 +209,13 @@ func runConfigGetProfile(cmd *cobra.Command, key string) error {
 }
 
 func runConfigSetGlobal(key, value string) error {
+	// LoadGlobal reads raw values without profile overrides (for accurate old value)
+	rawCfg, err := config.LoadGlobal()
+	if err != nil {
+		return err
+	}
+	oldVal, _ := rawCfg.Get(key)
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -219,7 +226,11 @@ func runConfigSetGlobal(key, value string) error {
 	if err := config.Save(cfg); err != nil {
 		return err
 	}
-	fmt.Printf("set %s = %s  (global)\n", key, value)
+	if oldVal != "" && oldVal != value {
+		fmt.Printf("set %s: %q → %q  (global)\n", key, oldVal, value)
+	} else {
+		fmt.Printf("set %s: %q  (global)\n", key, value)
+	}
 	return nil
 }
 
@@ -232,12 +243,17 @@ func runConfigSetProfile(cmd *cobra.Command, key, value string) error {
 	if err != nil {
 		return err
 	}
+	oldVal, _ := p.Get(key)
 	if err := p.Set(key, value); err != nil {
 		return err
 	}
 	if err := config.SaveProfile(profile, p); err != nil {
 		return err
 	}
-	fmt.Printf("set %s = %s  (profile: %s)\n", key, value, profile)
+	if oldVal != "" && oldVal != value {
+		fmt.Printf("set %s: %q → %q  (profile: %s)\n", key, oldVal, value, profile)
+	} else {
+		fmt.Printf("set %s: %q  (profile: %s)\n", key, value, profile)
+	}
 	return nil
 }

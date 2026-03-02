@@ -267,15 +267,6 @@ var profileBackupViewCmd = &cobra.Command{
 		aliasesFile := filepath.Join(bak.Path, "aliases.yaml")
 		groupsFile := filepath.Join(bak.Path, "groups.yaml")
 
-		links, _ := store.ListLinks(linksFile)
-		// load aliases once; derive both the sorted slice and the lookup map
-		aliasEntries, _ := store.ListAliases(aliasesFile)
-		aliasesMap := make(map[string]string, len(aliasEntries))
-		for _, a := range aliasEntries {
-			aliasesMap[a.Name] = a.LinkKey
-		}
-		groups, _ := store.ListGroups(groupsFile)
-
 		// Load variable prefix from backup's own config
 		prefix := "@"
 		var pc config.ProfileConfig
@@ -290,6 +281,13 @@ var profileBackupViewCmd = &cobra.Command{
 		fmt.Fprintf(w, "path:\t%s\n", bak.Path)
 
 		if detail {
+			links, _ := store.ListLinks(linksFile)
+			aliasEntries, _ := store.ListAliases(aliasesFile)
+			aliasesMap := make(map[string]string, len(aliasEntries))
+			for _, a := range aliasEntries {
+				aliasesMap[a.Name] = a.LinkKey
+			}
+			groups, _ := store.ListGroups(groupsFile)
 			fmt.Fprintf(w, "links (%d):\t\n", len(links))
 			for _, l := range links {
 				fmt.Fprintf(w, "  %s:\t%s\n", store.DenormalizeVars(l.Key, prefix), store.DenormalizeVars(l.URL, prefix))
@@ -312,6 +310,9 @@ var profileBackupViewCmd = &cobra.Command{
 				}
 			}
 		} else {
+			links, _ := store.ListLinks(linksFile)
+			aliasEntries, _ := store.ListAliases(aliasesFile)
+			groups, _ := store.ListGroups(groupsFile)
 			fmt.Fprintf(w, "links:\t%d\n", len(links))
 			fmt.Fprintf(w, "aliases:\t%d\n", len(aliasEntries))
 			fmt.Fprintf(w, "groups:\t%d\n", len(groups))

@@ -182,10 +182,14 @@ var linkDeleteCmd = &cobra.Command{
 		normKey := store.NormalizeVars(args[0], cfg.VariablePrefix)
 		posKey, _ := store.NormalizeToPositional(normKey)
 
-		if err := store.RemoveLink(config.ProfileLinksFile(profile), posKey); err != nil {
+		link, err := store.GetLink(config.ProfileLinksFile(profile), posKey)
+		if err != nil {
 			return fmt.Errorf("link %q not found", args[0])
 		}
-		fmt.Printf("removed link %q\n", args[0])
+		if err := store.RemoveLink(config.ProfileLinksFile(profile), posKey); err != nil {
+			return err
+		}
+		fmt.Printf("removed link %q: %s\n", args[0], store.DenormalizeVars(link.URL, cfg.VariablePrefix))
 		return nil
 	},
 }

@@ -229,15 +229,6 @@ var profileViewCmd = &cobra.Command{
 			active = " (active)"
 		}
 
-		links, _ := store.ListLinks(config.ProfileLinksFile(name))
-		// load aliases once; derive both the sorted slice and the lookup map
-		aliasEntries, _ := store.ListAliases(config.ProfileAliasesFile(name))
-		aliasesMap := make(map[string]string, len(aliasEntries))
-		for _, a := range aliasEntries {
-			aliasesMap[a.Name] = a.LinkKey
-		}
-		groups, _ := store.ListGroups(config.ProfileGroupsFile(name))
-
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintf(w, "name:\t%s%s\n", p.Name, active)
 		if p.Description != "" {
@@ -262,6 +253,13 @@ var profileViewCmd = &cobra.Command{
 		}
 
 		if detail {
+			links, _ := store.ListLinks(config.ProfileLinksFile(name))
+			aliasEntries, _ := store.ListAliases(config.ProfileAliasesFile(name))
+			aliasesMap := make(map[string]string, len(aliasEntries))
+			for _, a := range aliasEntries {
+				aliasesMap[a.Name] = a.LinkKey
+			}
+			groups, _ := store.ListGroups(config.ProfileGroupsFile(name))
 			fmt.Fprintf(w, "links (%d):\t\n", len(links))
 			for _, l := range links {
 				fmt.Fprintf(w, "  %s:\t%s\n", store.DenormalizeVars(l.Key, cfg.VariablePrefix), store.DenormalizeVars(l.URL, cfg.VariablePrefix))
@@ -284,6 +282,9 @@ var profileViewCmd = &cobra.Command{
 				}
 			}
 		} else {
+			links, _ := store.ListLinks(config.ProfileLinksFile(name))
+			aliasEntries, _ := store.ListAliases(config.ProfileAliasesFile(name))
+			groups, _ := store.ListGroups(config.ProfileGroupsFile(name))
 			fmt.Fprintf(w, "links:\t%d\n", len(links))
 			fmt.Fprintf(w, "aliases:\t%d\n", len(aliasEntries))
 			fmt.Fprintf(w, "groups:\t%d\n", len(groups))

@@ -134,10 +134,14 @@ var aliasDeleteCmd = &cobra.Command{
 			return err
 		}
 
+		prevTarget, err := store.GetAlias(config.ProfileAliasesFile(profile), args[0])
+		if err != nil {
+			return fmt.Errorf("alias %q not found", args[0])
+		}
 		if err := store.RemoveAlias(config.ProfileAliasesFile(profile), args[0]); err != nil {
 			return err
 		}
-		fmt.Printf("removed alias %q\n", args[0])
+		fmt.Printf("removed alias %q → %s\n", args[0], prevTarget)
 		return nil
 	},
 }

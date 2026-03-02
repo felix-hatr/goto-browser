@@ -38,6 +38,36 @@ type ProfileConfig struct {
 	ProfileViewMode   string `yaml:"profile_view_mode,omitempty"`
 }
 
+// LoadGlobal loads the raw global config without applying profile overrides.
+// Use this when you need the actual stored global value, not the effective (profile-merged) value.
+func LoadGlobal() (*GlobalConfig, error) {
+	cfgPath := ConfigFile()
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &GlobalConfig{}, nil
+		}
+		return nil, fmt.Errorf("reading config: %w", err)
+	}
+	var cfg GlobalConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+	if cfg.VariablePrefix == "" {
+		cfg.VariablePrefix = defaultVariablePrefix
+	}
+	if cfg.OpenMode == "" {
+		cfg.OpenMode = "new_tab"
+	}
+	if cfg.ProfileDeleteMode == "" {
+		cfg.ProfileDeleteMode = "backup"
+	}
+	if cfg.ProfileViewMode == "" {
+		cfg.ProfileViewMode = "summary"
+	}
+	return &cfg, nil
+}
+
 // Load loads the global config, auto-initializing if not present.
 func Load() (*GlobalConfig, error) {
 	cfgPath := ConfigFile()
