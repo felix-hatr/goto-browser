@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 )
 
-// GbroDir returns the root zebro config directory (~/.config/zebro).
+// ZebroDir returns the root zebro config directory (~/.config/zebro).
 // Respects XDG_CONFIG_HOME if set.
-func GbroDir() string {
+func ZebroDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "zebro")
 	}
@@ -20,17 +20,17 @@ func GbroDir() string {
 
 // ConfigFile returns the path to the global config file.
 func ConfigFile() string {
-	return filepath.Join(GbroDir(), "config.yaml")
+	return filepath.Join(ZebroDir(), "config.yaml")
 }
 
 // CurrentProfileFile returns the path to the active profile state file.
 func CurrentProfileFile() string {
-	return filepath.Join(GbroDir(), ".current_profile")
+	return filepath.Join(ZebroDir(), ".current_profile")
 }
 
 // ProfilesDir returns the directory containing all profiles.
 func ProfilesDir() string {
-	return filepath.Join(GbroDir(), "profiles")
+	return filepath.Join(ZebroDir(), "profiles")
 }
 
 // ProfileDir returns the directory for a specific profile.

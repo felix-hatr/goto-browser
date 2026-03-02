@@ -145,7 +145,7 @@ func applyProfileOverrides(global *GlobalConfig, profile *ProfileConfig) {
 
 // Save writes the global config to disk (excludes ActiveProfile).
 func Save(cfg *GlobalConfig) error {
-	if err := os.MkdirAll(GbroDir(), 0700); err != nil {
+	if err := os.MkdirAll(ZebroDir(), 0700); err != nil {
 		return fmt.Errorf("creating zebro dir: %w", err)
 	}
 
@@ -175,7 +175,7 @@ func GetActiveProfile() (string, error) {
 
 // SetActiveProfile writes the active profile name to .current_profile.
 func SetActiveProfile(name string) error {
-	if err := os.MkdirAll(GbroDir(), 0700); err != nil {
+	if err := os.MkdirAll(ZebroDir(), 0700); err != nil {
 		return err
 	}
 	return os.WriteFile(CurrentProfileFile(), []byte(name+"\n"), 0600)
