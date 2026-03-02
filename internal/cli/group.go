@@ -19,7 +19,7 @@ var groupCmd = &cobra.Command{
 }
 
 func init() {
-	groupCmd.AddCommand(groupListCmd, groupViewCmd, groupCreateCmd, groupDeleteCmd, groupAddCmd, groupRemoveCmd, groupClearCmd)
+	groupCmd.AddCommand(groupListCmd, groupViewCmd, groupCreateCmd, groupDeleteCmd, groupAddCmd, groupRemoveCmd, groupClearCmd, groupRenameCmd)
 	groupCreateCmd.Flags().StringP("description", "d", "", "Group description")
 	groupCreateCmd.Flags().StringArrayP("link", "l", nil, "Link key to add (repeatable)")
 	groupAddCmd.Flags().Int("at", 0, "Position to insert (1-based, default: append to end)")
@@ -70,6 +70,7 @@ func init() {
 		fmt.Fprintln(w, "  list:\tList all groups")
 		fmt.Fprintln(w, "  view:\tShow group details")
 		fmt.Fprintln(w, "  create:\tCreate a new group")
+		fmt.Fprintln(w, "  rename:\tRename a group")
 		fmt.Fprintln(w, "  delete:\tRemove a group")
 		fmt.Fprintln(w, "  add:\tAdd links to a group")
 		fmt.Fprintln(w, "  remove:\tRemove links from a group")
@@ -509,6 +510,59 @@ var groupClearCmd = &cobra.Command{
 			return err
 		}
 		fmt.Println("cleared all groups")
+		return nil
+	},
+}
+
+var groupRenameCmd = &cobra.Command{
+	Use:               "rename <old-name> <new-name>",
+	Short:             "Rename a group",
+	Args:              cobra.MaximumNArgs(2),
+	ValidArgsFunction: completeGroupNames,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return cmd.Help()
+		}
+		profile, cfg, err := currentProfile()
+		if err != nil {
+			return err
+		}
+
+		normOld := store.NormalizeVars(args[0], cfg.VariablePrefix)
+		oldPosName, oldParams := store.NormalizeToPositional(normOld)
+
+		normNew := store.NormalizeVars(args[1], cfg.VariablePrefix)
+		newPosName, newParams := store.NormalizeToPositional(normNew)
+
+		if len(oldParams) != len(newParams) {
+			return fmt.Errorf("variable count mismatch: old name has %d variable(s), new name has %d", len(oldParams), len(newParams))
+		}
+
+		groupsPath := config.ProfileGroupsFile(profile)
+		gf, err := store.LoadGroups(groupsPath)
+		if err != nil {
+			return err
+		}
+
+		if _, ok := gf.Groups[oldPosName]; !ok {
+			return fmt.Errorf("group %q not found", args[0])
+		}
+		if _, ok := gf.Groups[newPosName]; ok {
+			return fmt.Errorf("group %q already exists", args[1])
+		}
+
+		entry := gf.Groups[oldPosName]
+		entry.Params = newParams
+		gf.Groups[newPosName] = entry
+		delete(gf.Groups, oldPosName)
+
+		if err := store.SaveGroups(groupsPath, gf); err != nil {
+			return err
+		}
+
+		displayOld := displayVar(oldPosName, cfg.VariablePrefix, oldParams, cfg.VariableDisplay)
+		displayNew := displayVar(newPosName, cfg.VariablePrefix, newParams, cfg.VariableDisplay)
+		fmt.Printf("renamed group %q → %q\n", displayOld, displayNew)
 		return nil
 	},
 }
