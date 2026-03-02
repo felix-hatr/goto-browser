@@ -20,13 +20,14 @@ var openLinkFlag string
 var openURLFlag string
 
 func init() {
+	openCmd.Flags().SortFlags = false
+	openCmd.Flags().StringVarP(&openLinkFlag, "link", "l", "", "Open a link by key")
+	openCmd.Flags().StringVarP(&openGroupFlag, "group", "g", "", "Open a group by name")
+	openCmd.Flags().StringVarP(&openURLFlag, "url", "u", "", "Open a direct URL")
 	openCmd.Flags().BoolVarP(&openNewWindow, "new-window", "n", false, "Open in a new window (overrides config open_mode)")
 	openCmd.Flags().BoolVarP(&openNewTab, "new-tab", "t", false, "Open in a new tab (overrides config open_mode)")
-	openCmd.Flags().BoolVar(&openDryRun, "dry-run", false, "Print URL(s) without opening the browser")
 	openCmd.Flags().StringVarP(&openBrowserOverride, "browser", "b", "", "Browser to use for this command")
-	openCmd.Flags().StringVarP(&openGroupFlag, "group", "g", "", "Open a group by name")
-	openCmd.Flags().StringVarP(&openLinkFlag, "link", "l", "", "Open a link by key")
-	openCmd.Flags().StringVarP(&openURLFlag, "url", "u", "", "Open a direct URL")
+	openCmd.Flags().BoolVar(&openDryRun, "dry-run", false, "Print URL(s) without opening the browser")
 
 	openCmd.RegisterFlagCompletionFunc("link", completeLinkKeysFlag)
 	openCmd.RegisterFlagCompletionFunc("group", completeGroupNamesFlag)
