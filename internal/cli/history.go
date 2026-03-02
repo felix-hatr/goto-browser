@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/felix-hatr/goto-browser/internal/config"
 	"github.com/felix-hatr/goto-browser/internal/store"
@@ -38,12 +37,11 @@ var historyListCmd = &cobra.Command{
 			return err
 		}
 
-		hf, err := store.LoadHistory(config.ProfileHistoryFile(profile))
+		entries, err := store.LoadHistory(config.ProfileHistoryFile(profile))
 		if err != nil {
 			return err
 		}
 
-		entries := hf.History
 		if len(entries) == 0 {
 			fmt.Println("no history found")
 			return nil
@@ -99,12 +97,11 @@ var historyStatsCmd = &cobra.Command{
 			return err
 		}
 
-		hf, err := store.LoadHistory(config.ProfileHistoryFile(profile))
+		entries, err := store.LoadHistory(config.ProfileHistoryFile(profile))
 		if err != nil {
 			return err
 		}
 
-		entries := hf.History
 		if len(entries) == 0 {
 			fmt.Println("no history found")
 			return nil
@@ -189,10 +186,7 @@ var historyClearCmd = &cobra.Command{
 			return err
 		}
 		path := config.ProfileHistoryFile(profile)
-		if err := store.SaveHistory(path, &store.HistoryFile{
-			Version: "1",
-			History: []store.HistoryEntry{},
-		}); err != nil {
+		if err := store.SaveHistory(path, nil); err != nil {
 			return err
 		}
 		fmt.Println("cleared history")
@@ -202,9 +196,13 @@ var historyClearCmd = &cobra.Command{
 
 var historyCompactCmd = &cobra.Command{
 	Use:   "compact",
-	Short: "Apply TTL and limit without opening anything",
-	Long:  "Remove expired and excess entries based on history_limit and history_ttl config.",
-	Args:  cobra.NoArgs,
+	Short: "Deduplicate and trim history",
+	Long: `Apply erasedups-style deduplication and history_size limit.
+
+When history_dedup is set, keeps the latest occurrence of each target.
+When history_dedup is not set (none), still applies dedup (keep latest per target).
+Always applies history_size limit if configured.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile, cfg, err := currentProfile()
 		if err != nil {
@@ -212,31 +210,35 @@ var historyCompactCmd = &cobra.Command{
 		}
 
 		path := config.ProfileHistoryFile(profile)
-		hf, err := store.LoadHistory(path)
+		entries, err := store.LoadHistory(path)
 		if err != nil {
 			return err
 		}
-		before := len(hf.History)
+		before := len(entries)
 
-		// Apply TTL
-		if cfg.HistoryTTL > 0 {
-			cutoff := time.Now().AddDate(0, 0, -cfg.HistoryTTL)
-			filtered := hf.History[:0]
-			for _, e := range hf.History {
-				if e.Time.After(cutoff) {
-					filtered = append(filtered, e)
-				}
+		// Erasedups: keep only the latest occurrence of each target.
+		// Iterate from newest to oldest, skip duplicates, then reverse.
+		seen := make(map[string]bool, len(entries))
+		deduped := make([]store.HistoryEntry, 0, len(entries))
+		for i := len(entries) - 1; i >= 0; i-- {
+			key := entries[i].Type + ":" + entries[i].Target
+			if !seen[key] {
+				seen[key] = true
+				deduped = append(deduped, entries[i])
 			}
-			hf.History = filtered
+		}
+		// Reverse to restore chronological order
+		for i, j := 0, len(deduped)-1; i < j; i, j = i+1, j-1 {
+			deduped[i], deduped[j] = deduped[j], deduped[i]
 		}
 
-		// Apply limit
-		if cfg.HistoryLimit > 0 && len(hf.History) > cfg.HistoryLimit {
-			hf.History = hf.History[len(hf.History)-cfg.HistoryLimit:]
+		// Apply size limit
+		if cfg.HistorySize > 0 && len(deduped) > cfg.HistorySize {
+			deduped = deduped[len(deduped)-cfg.HistorySize:]
 		}
 
-		after := len(hf.History)
-		if err := store.SaveHistory(path, hf); err != nil {
+		after := len(deduped)
+		if err := store.SaveHistory(path, deduped); err != nil {
 			return err
 		}
 		removed := before - after

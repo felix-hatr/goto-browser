@@ -274,7 +274,7 @@ func recordHistory(profile string, cfg *config.GlobalConfig, entry store.History
 	_ = store.AppendHistory(
 		config.ProfileHistoryFile(profile),
 		entry,
-		cfg.HistoryLimit,
-		cfg.HistoryTTL,
+		cfg.HistorySize,
+		cfg.HistoryDedup,
 	)
 }

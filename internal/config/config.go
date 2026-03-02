@@ -23,8 +23,8 @@ type GlobalConfig struct {
 	OpenDefault       string `yaml:"open_default"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode"`
 	ProfileViewMode   string `yaml:"profile_view_mode"`
-	HistoryLimit      int    `yaml:"history_limit,omitempty"`
-	HistoryTTL        int    `yaml:"history_ttl,omitempty"`
+	HistorySize  int    `yaml:"history_size,omitempty"`
+	HistoryDedup string `yaml:"history_dedup,omitempty"`
 
 	// Runtime-only: loaded from .current_profile, not written to config.yaml.
 	ActiveProfile string `yaml:"-"`
@@ -42,8 +42,8 @@ type ProfileConfig struct {
 	OpenDefault       string `yaml:"open_default,omitempty"`
 	ProfileDeleteMode string `yaml:"profile_delete_mode,omitempty"`
 	ProfileViewMode   string `yaml:"profile_view_mode,omitempty"`
-	HistoryLimit      int    `yaml:"history_limit,omitempty"`
-	HistoryTTL        int    `yaml:"history_ttl,omitempty"`
+	HistorySize  int    `yaml:"history_size,omitempty"`
+	HistoryDedup string `yaml:"history_dedup,omitempty"`
 }
 
 // applyConfigDefaults fills in zero-value fields with their defaults.
@@ -65,12 +65,6 @@ func applyConfigDefaults(cfg *GlobalConfig) {
 	}
 	if cfg.ProfileViewMode == "" {
 		cfg.ProfileViewMode = "summary"
-	}
-	if cfg.HistoryLimit == 0 {
-		cfg.HistoryLimit = 200
-	}
-	if cfg.HistoryTTL == 0 {
-		cfg.HistoryTTL = 30
 	}
 }
 
@@ -150,11 +144,11 @@ func applyProfileOverrides(global *GlobalConfig, profile *ProfileConfig) {
 	if profile.ProfileViewMode != "" {
 		global.ProfileViewMode = profile.ProfileViewMode
 	}
-	if profile.HistoryLimit != 0 {
-		global.HistoryLimit = profile.HistoryLimit
+	if profile.HistorySize != 0 {
+		global.HistorySize = profile.HistorySize
 	}
-	if profile.HistoryTTL != 0 {
-		global.HistoryTTL = profile.HistoryTTL
+	if profile.HistoryDedup != "" {
+		global.HistoryDedup = profile.HistoryDedup
 	}
 }
 
@@ -338,18 +332,15 @@ func (c *ProfileConfig) Get(key string) (string, error) {
 		return c.ProfileDeleteMode, nil
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
-	case "history_limit":
-		if c.HistoryLimit == 0 {
+	case "history_size":
+		if c.HistorySize == 0 {
 			return "", nil
 		}
-		return fmt.Sprintf("%d", c.HistoryLimit), nil
-	case "history_ttl":
-		if c.HistoryTTL == 0 {
-			return "", nil
-		}
-		return fmt.Sprintf("%d", c.HistoryTTL), nil
+		return fmt.Sprintf("%d", c.HistorySize), nil
+	case "history_dedup":
+		return c.HistoryDedup, nil
 	default:
-		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
+		return "", fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 }
 
@@ -390,20 +381,19 @@ func (c *ProfileConfig) Set(key, value string) error {
 			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
 		}
 		c.ProfileViewMode = value
-	case "history_limit":
-		n, err := parseHistoryInt(value, "history_limit")
+	case "history_size":
+		n, err := parseHistorySize(value)
 		if err != nil {
 			return err
 		}
-		c.HistoryLimit = n
-	case "history_ttl":
-		n, err := parseHistoryInt(value, "history_ttl")
-		if err != nil {
-			return err
+		c.HistorySize = n
+	case "history_dedup":
+		if value != "none" && value != "consecutive" && value != "all" {
+			return fmt.Errorf("history_dedup must be 'none', 'consecutive', or 'all'")
 		}
-		c.HistoryTTL = n
+		c.HistoryDedup = value
 	default:
-		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
+		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 	return nil
 }
@@ -425,12 +415,15 @@ func (c *GlobalConfig) Get(key string) (string, error) {
 		return c.ProfileDeleteMode, nil
 	case "profile_view_mode":
 		return c.ProfileViewMode, nil
-	case "history_limit":
-		return fmt.Sprintf("%d", c.HistoryLimit), nil
-	case "history_ttl":
-		return fmt.Sprintf("%d", c.HistoryTTL), nil
+	case "history_size":
+		if c.HistorySize == 0 {
+			return "", nil
+		}
+		return fmt.Sprintf("%d", c.HistorySize), nil
+	case "history_dedup":
+		return c.HistoryDedup, nil
 	default:
-		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
+		return "", fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 }
 
@@ -469,32 +462,31 @@ func (c *GlobalConfig) Set(key, value string) error {
 			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
 		}
 		c.ProfileViewMode = value
-	case "history_limit":
-		n, err := parseHistoryInt(value, "history_limit")
+	case "history_size":
+		n, err := parseHistorySize(value)
 		if err != nil {
 			return err
 		}
-		c.HistoryLimit = n
-	case "history_ttl":
-		n, err := parseHistoryInt(value, "history_ttl")
-		if err != nil {
-			return err
+		c.HistorySize = n
+	case "history_dedup":
+		if value != "none" && value != "consecutive" && value != "all" {
+			return fmt.Errorf("history_dedup must be 'none', 'consecutive', or 'all'")
 		}
-		c.HistoryTTL = n
+		c.HistoryDedup = value
 	default:
-		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_limit, history_ttl)", key)
+		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 	return nil
 }
 
-// parseHistoryInt parses a history config value (must be integer >= -1).
-func parseHistoryInt(value, key string) (int, error) {
+// parseHistorySize parses a history_size config value (must be integer > 0).
+func parseHistorySize(value string) (int, error) {
 	n := 0
 	if _, err := fmt.Sscanf(value, "%d", &n); err != nil {
-		return 0, fmt.Errorf("%s must be an integer (got %q)", key, value)
+		return 0, fmt.Errorf("history_size must be a positive integer (got %q)", value)
 	}
-	if n < -1 {
-		return 0, fmt.Errorf("%s must be >= -1 (use -1 to disable)", key)
+	if n <= 0 {
+		return 0, fmt.Errorf("history_size must be a positive integer (got %d)", n)
 	}
 	return n, nil
 }
