@@ -1,0 +1,18 @@
+# Build output
+bin/
+dist/
+*.exe
+
+# Backup files created by zebro CLI
+*.bak
+
+# macOS
+.DS_Store
+
+# Go test cache & coverage
+*.test
+*.out
+coverage.html
+
+# GoReleaser
+/dist/
