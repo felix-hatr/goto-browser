@@ -29,7 +29,7 @@ zebro open github/octocat/hello-world
 zebro open jira/PROJ-123
 
 # Groups — open multiple tabs at once in a new window
-zebro group create morning github jira/PROJ-100
+zebro group create morning -l github -l jira/PROJ-100
 zebro open -g morning
 ```
 
@@ -46,11 +46,11 @@ zebro link clear [--force]
 
 ### Groups
 ```
-zebro group create <name> [link-key...] [-d <description>]
+zebro group create <name> [-l <link-key>...] [-d <description>]
 zebro group list
 zebro group view <name>
-zebro group add <name> <link-key...> [--at <position>]
-zebro group remove <name> [link-key...] [--at <position>]
+zebro group add <name> -l <link-key> [-l <link-key>...] [--at <position>]
+zebro group remove <name> [-l <link-key>...] [--at <position>]
 zebro group delete <name>
 zebro group clear [--force]
 ```

@@ -21,9 +21,35 @@ var groupCmd = &cobra.Command{
 func init() {
 	groupCmd.AddCommand(groupListCmd, groupViewCmd, groupCreateCmd, groupDeleteCmd, groupAddCmd, groupRemoveCmd, groupClearCmd)
 	groupCreateCmd.Flags().StringP("description", "d", "", "Group description")
+	groupCreateCmd.Flags().StringArrayP("link", "l", nil, "Link key to add (repeatable)")
 	groupAddCmd.Flags().Int("at", 0, "Position to insert (1-based, default: append to end)")
+	groupAddCmd.Flags().StringArrayP("link", "l", nil, "Link key to add (repeatable)")
 	groupRemoveCmd.Flags().Int("at", 0, "Position to remove (1-based)")
+	groupRemoveCmd.Flags().StringArrayP("link", "l", nil, "Link key to remove (repeatable)")
 	groupClearCmd.Flags().Bool("force", false, "Skip backup and delete immediately")
+
+	groupCreateCmd.RegisterFlagCompletionFunc("link", completeLinkKeysAll)
+	groupAddCmd.RegisterFlagCompletionFunc("link", completeLinkKeysAll)
+	groupRemoveCmd.RegisterFlagCompletionFunc("link", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		profile, cfg, err := currentProfile()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		normName := store.NormalizeVars(args[0], cfg.VariablePrefix)
+		posName, _ := store.NormalizeToPositional(normName)
+		group, err := store.GetGroup(config.ProfileGroupsFile(profile), posName)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		names := make([]string, len(group.Links))
+		for i, l := range group.Links {
+			names[i] = displayVar(l, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
+		}
+		return names, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	defaultHelp := groupCmd.HelpFunc()
 	groupCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
@@ -58,10 +84,10 @@ func init() {
 		fmt.Fprintf(w, "  Variables in the group name map to its link keys by position.\n")
 		fmt.Fprintln(w, "")
 		fmt.Fprintf(w, "  Concrete group:\n")
-		fmt.Fprintf(w, "    zebro group create morning github jira/PROJ-100\n")
+		fmt.Fprintf(w, "    zebro group create morning -l github -l jira/PROJ-100\n")
 		fmt.Fprintln(w, "")
 		fmt.Fprintf(w, "  Variable group (%[1]sname style):\n", p)
-		fmt.Fprintf(w, "    zebro group create dev/%[1]saccount/%[1]srepo github/%[1]saccount github/%[1]saccount/%[1]srepo\n", p)
+		fmt.Fprintf(w, "    zebro group create dev/%[1]saccount/%[1]srepo -l github/%[1]saccount -l github/%[1]saccount/%[1]srepo\n", p)
 		fmt.Fprintf(w, "    zebro open -g dev/myorg/myrepo    # %[1]saccount=myorg, %[1]srepo=myrepo\n", p)
 		fmt.Fprintln(w, "")
 		fmt.Fprintf(w, "  variable_prefix   prefix character (current: %s)  →  zebro config set variable_prefix\n", p)
@@ -69,9 +95,9 @@ func init() {
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "EXAMPLES")
 		fmt.Fprintf(w, "  $ zebro group list\n")
-		fmt.Fprintf(w, "  $ zebro group create morning github slack\n")
-		fmt.Fprintf(w, "  $ zebro group add morning jira/PROJ-100\n")
-		fmt.Fprintf(w, "  $ zebro group remove morning slack\n")
+		fmt.Fprintf(w, "  $ zebro group create morning -l github -l slack\n")
+		fmt.Fprintf(w, "  $ zebro group add morning -l jira/PROJ-100\n")
+		fmt.Fprintf(w, "  $ zebro group remove morning -l slack\n")
 		fmt.Fprintf(w, "  $ zebro group view morning\n")
 		fmt.Fprintf(w, "  $ zebro group delete morning\n")
 		fmt.Fprintf(w, "  $ zebro open -g morning\n")
@@ -83,7 +109,7 @@ func init() {
 }
 
 var groupCreateCmd = &cobra.Command{
-	Use:   "create <name> [link-key...]",
+	Use:   "create <name> [-l <link-key>...]",
 	Short: "Create a new group",
 	Long: `Create a named group of links that open together with 'zebro open -g'.
 
@@ -92,15 +118,10 @@ Variables in the name are mapped positionally to the link keys.
 Link keys without variables create a concrete group.
 
 If the group already exists, it is replaced.`,
-	Example: `  $ zebro group create morning github slack jira/PROJ-100
-  $ zebro group create dev/@account/@repo github/@account github/@account/@repo
+	Example: `  $ zebro group create morning -l github -l slack -l jira/PROJ-100
+  $ zebro group create dev/@account/@repo -l github/@account -l github/@account/@repo
   $ zebro group create focus -d "deep work"`,
-	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) == 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		return completeLinkKeysAll(cmd, args, toComplete)
-	},
+	ValidArgsFunction: cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
@@ -111,7 +132,7 @@ If the group already exists, it is replaced.`,
 		}
 
 		name := args[0]
-		rawLinkKeys := args[1:]
+		rawLinkKeys, _ := cmd.Flags().GetStringArray("link")
 		desc, _ := cmd.Flags().GetString("description")
 
 		normName := store.NormalizeVars(name, cfg.VariablePrefix)
@@ -299,27 +320,28 @@ var groupDeleteCmd = &cobra.Command{
 }
 
 var groupAddCmd = &cobra.Command{
-	Use:   "add <name> <link-key...>",
+	Use:   "add <name> -l <link-key> [-l <link-key>...]",
 	Short: "Add links to a group",
 	Long: `Add one or more link keys to an existing group.
 
 By default links are appended to the end. Use --at to insert at a specific
 1-based position, shifting existing links down.`,
-	Example: `  $ zebro group add morning notion
-  $ zebro group add morning notion figma
-  $ zebro group add morning notion --at 1`,
+	Example: `  $ zebro group add morning -l notion
+  $ zebro group add morning -l notion -l figma
+  $ zebro group add morning -l notion --at 1`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeGroupNames(cmd, args, toComplete)
 		}
-		return completeLinkKeysAll(cmd, args, toComplete)
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
 		}
-		if len(args) < 2 {
-			return fmt.Errorf("requires at least 1 link key: group add <name> <link-key...>")
+		rawLinkKeys, _ := cmd.Flags().GetStringArray("link")
+		if len(rawLinkKeys) == 0 {
+			return fmt.Errorf("requires at least 1 link key: use -l <link-key>")
 		}
 		profile, cfg, err := currentProfile()
 		if err != nil {
@@ -327,7 +349,6 @@ By default links are appended to the end. Use --at to insert at a specific
 		}
 
 		name := args[0]
-		rawLinkKeys := args[1:]
 		at, _ := cmd.Flags().GetInt("at")
 
 		normName := store.NormalizeVars(name, cfg.VariablePrefix)
@@ -376,52 +397,33 @@ By default links are appended to the end. Use --at to insert at a specific
 }
 
 var groupRemoveCmd = &cobra.Command{
-	Use:   "remove <name> [link-key...]",
+	Use:   "remove <name> [-l <link-key>...] [--at <position>]",
 	Short: "Remove links from a group",
 	Long: `Remove links from a group by key or by position.
-Removing by key removes all occurrences of that link.
+Removing by key (-l) removes all occurrences of that link.
 Removing by position (--at) removes the link at that 1-based index.`,
-	Example: `  $ zebro group remove morning slack
-  $ zebro group remove morning github slack
+	Example: `  $ zebro group remove morning -l slack
+  $ zebro group remove morning -l github -l slack
   $ zebro group remove morning --at 2`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeGroupNames(cmd, args, toComplete)
 		}
-		at, _ := cmd.Flags().GetInt("at")
-		if at > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		// Suggest link keys currently in this group
-		profile, cfg, err := currentProfile()
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		normName := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posName, _ := store.NormalizeToPositional(normName)
-		group, err := store.GetGroup(config.ProfileGroupsFile(profile), posName)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-		names := make([]string, len(group.Links))
-		for i, l := range group.Links {
-			names[i] = displayVar(l, cfg.VariablePrefix, group.Params, cfg.VariableDisplay)
-		}
-		return names, cobra.ShellCompDirectiveNoFileComp
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
 		}
 		name := args[0]
-		keys := args[1:]
+		keys, _ := cmd.Flags().GetStringArray("link")
 		at, _ := cmd.Flags().GetInt("at")
 
 		if at > 0 && len(keys) > 0 {
-			return fmt.Errorf("--at and link-key arguments are mutually exclusive")
+			return fmt.Errorf("--at and -l/--link are mutually exclusive")
 		}
 		if at == 0 && len(keys) == 0 {
-			return fmt.Errorf("specify link-key(s) to remove or use --at <position>")
+			return fmt.Errorf("specify -l <link-key> to remove or use --at <position>")
 		}
 
 		profile, cfg, err := currentProfile()
