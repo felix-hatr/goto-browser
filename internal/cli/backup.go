@@ -226,7 +226,7 @@ var profileBackupViewCmd = &cobra.Command{
 	Long:  "Show the links, aliases, and groups stored in a specific backup.",
 	Example: `  $ zebro profile backup view work 20260302-151524
   $ zebro profile backup view work 20260302-151524 -d`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.MaximumNArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeBackupProfileNames(cmd, args, toComplete)
@@ -242,6 +242,9 @@ var profileBackupViewCmd = &cobra.Command{
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return cmd.Help()
+		}
 		name, ts := args[0], args[1]
 		baks, err := findBackupsFor(name)
 		if err != nil {
@@ -323,9 +326,12 @@ var profileBackupCreateCmd = &cobra.Command{
 	Short:             "Create a manual backup of a profile",
 	Long:              "Create a backup snapshot of a profile without removing it.",
 	Example:           `  $ zebro profile backup create work`,
-	Args:              cobra.ExactArgs(1),
+	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeProfileNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		name := args[0]
 		if !config.ProfileExists(name) {
 			return fmt.Errorf("profile %q does not exist", name)
@@ -479,9 +485,12 @@ var profileBackupClearCmd = &cobra.Command{
 	Short:             "Delete all backups for a profile",
 	Long:              "Permanently delete all backups for a specific profile.",
 	Example:           `  $ zebro profile backup clear work`,
-	Args:              cobra.ExactArgs(1),
+	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeBackupProfileNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		name := args[0]
 		baks, err := findBackupsFor(name)
 		if err != nil {

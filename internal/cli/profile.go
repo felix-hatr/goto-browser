@@ -253,9 +253,12 @@ func init() {
 var profileUseCmd = &cobra.Command{
 	Use:               "use <name>",
 	Short:             "Switch the active profile",
-	Args:              cobra.ExactArgs(1),
+	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeProfileNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
 		name := args[0]
 		if !config.ProfileExists(name) {
 			return fmt.Errorf("profile %q does not exist (run: zebro profile create %s)", name, name)
@@ -274,7 +277,7 @@ var profileRenameCmd = &cobra.Command{
 	Long:  "Rename a profile. If it is the active profile, the active profile is updated automatically.\nExisting backups are also renamed to match the new profile name.",
 	Example: `  $ zebro profile rename work work-old
   $ zebro profile rename personal home`,
-	Args: cobra.ExactArgs(2),
+	Args: cobra.MaximumNArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeProfileNames(cmd, args, toComplete)
@@ -282,6 +285,9 @@ var profileRenameCmd = &cobra.Command{
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return cmd.Help()
+		}
 		oldName, newName := args[0], args[1]
 		if err := validateProfileName(newName); err != nil {
 			return err
