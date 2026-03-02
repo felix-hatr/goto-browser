@@ -169,13 +169,14 @@ var linkListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "KEY\tURL\tDESCRIPTION")
-		fmt.Fprintln(w, "---\t---\t-----------")
+		fmt.Fprintln(w, "KEY\tURL\tDESCRIPTION\tPARAMS")
+		fmt.Fprintln(w, "---\t---\t-----------\t------")
 		for _, l := range links {
-			fmt.Fprintf(w, "%s\t%s\t%s\n",
-				store.DenormalizeParams(l.Key, cfg.VariablePrefix, l.Params),
-				store.DenormalizeParams(l.URL, cfg.VariablePrefix, l.Params),
-				l.Description)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+				store.DenormalizeVars(l.Key, cfg.VariablePrefix),
+				store.DenormalizeVars(l.URL, cfg.VariablePrefix),
+				l.Description,
+				formatParams(cfg.VariablePrefix, l.Params))
 		}
 		return w.Flush()
 	},
@@ -203,8 +204,8 @@ var linkViewCmd = &cobra.Command{
 			return fmt.Errorf("link %q not found", args[0])
 		}
 
-		fmt.Printf("key:         %s\n", store.DenormalizeParams(link.Key, cfg.VariablePrefix, link.Params))
-		fmt.Printf("url:         %s\n", store.DenormalizeParams(link.URL, cfg.VariablePrefix, link.Params))
+		fmt.Printf("key:         %s\n", store.DenormalizeVars(link.Key, cfg.VariablePrefix))
+		fmt.Printf("url:         %s\n", store.DenormalizeVars(link.URL, cfg.VariablePrefix))
 		if p := formatParams(cfg.VariablePrefix, link.Params); p != "" {
 			fmt.Printf("params:      %s\n", p)
 		}
