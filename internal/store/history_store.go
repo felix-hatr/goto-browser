@@ -17,6 +17,25 @@ type HistoryEntry struct {
 	URLs   []string  `json:"urls"`   // resolved URLs opened
 }
 
+// RecentTargets returns unique targets from the history file in MRU order (most recent first).
+// Returns nil if the file does not exist or is empty.
+func RecentTargets(path string) []string {
+	entries, err := LoadHistory(path)
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(entries))
+	result := make([]string, 0, len(entries))
+	for i := len(entries) - 1; i >= 0; i-- {
+		t := entries[i].Target
+		if !seen[t] {
+			seen[t] = true
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
 // LoadHistory reads all entries from the JSONL history file.
 // Returns an empty slice if the file does not exist.
 func LoadHistory(path string) ([]HistoryEntry, error) {

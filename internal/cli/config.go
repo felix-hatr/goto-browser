@@ -28,7 +28,7 @@ var sharedConfigKeys = []configKeyDef{
 	{"profile_delete_mode", "How to delete profiles {backup|permanent} (default: backup)", []string{"backup", "permanent"}, false},
 	{"profile_view_mode", "Default view mode for profile view {summary|detail} (default: summary)", []string{"summary", "detail"}, false},
 	{"description", "Profile description (profile only)", nil, true},
-	{"history_size", "Max history entries to keep (0=unlimited)", nil, false},
+	{"history_size", "Max history entries to keep (default: 10000, -1=unlimited)", nil, false},
 	{"history_dedup", "Dedup strategy {none|consecutive|all} (default: none)", []string{"none", "consecutive", "all"}, false},
 }
 

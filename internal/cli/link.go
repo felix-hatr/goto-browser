@@ -365,20 +365,5 @@ func completeLinkKeys(cmd *cobra.Command, args []string, toComplete string) ([]s
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-
-	profile, cfg, err := currentProfile()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	links, err := store.ListLinks(config.ProfileLinksFile(profile))
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	completions := make([]string, len(links))
-	for i, l := range links {
-		completions[i] = displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay)
-	}
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	return completeLinkKeysAll(cmd, args, toComplete)
 }

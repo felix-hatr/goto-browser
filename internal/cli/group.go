@@ -591,9 +591,20 @@ func completeLinkKeysAll(_ *cobra.Command, _ []string, _ string) ([]string, cobr
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	completions := make([]string, len(links))
-	for i, l := range links {
-		completions[i] = displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay)
+
+	recent := store.RecentTargets(config.ProfileHistoryFile(profile, "link"))
+	recentSet := make(map[string]bool, len(recent))
+	for _, t := range recent {
+		recentSet[t] = true
+	}
+
+	completions := make([]string, 0, len(recent)+len(links))
+	completions = append(completions, recent...)
+	for _, l := range links {
+		key := displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay)
+		if !recentSet[key] {
+			completions = append(completions, key)
+		}
 	}
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
@@ -689,10 +700,7 @@ func resolveGroupEntries(linkKeys, rawURLs []string, variablePrefix string, name
 }
 
 // completeGroupNames returns group names for tab completion.
-func completeGroupNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
+func completeGroupNamesAll(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 	profile, cfg, err := currentProfile()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -701,9 +709,27 @@ func completeGroupNames(cmd *cobra.Command, args []string, toComplete string) ([
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	names := make([]string, len(groups))
-	for i, g := range groups {
-		names[i] = displayVar(g.Name, cfg.VariablePrefix, g.Params, cfg.VariableDisplay)
+
+	recent := store.RecentTargets(config.ProfileHistoryFile(profile, "group"))
+	recentSet := make(map[string]bool, len(recent))
+	for _, t := range recent {
+		recentSet[t] = true
 	}
-	return names, cobra.ShellCompDirectiveNoFileComp
+
+	completions := make([]string, 0, len(recent)+len(groups))
+	completions = append(completions, recent...)
+	for _, g := range groups {
+		name := displayVar(g.Name, cfg.VariablePrefix, g.Params, cfg.VariableDisplay)
+		if !recentSet[name] {
+			completions = append(completions, name)
+		}
+	}
+	return completions, cobra.ShellCompDirectiveNoFileComp
+}
+
+func completeGroupNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) != 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return completeGroupNamesAll(cmd, args, toComplete)
 }

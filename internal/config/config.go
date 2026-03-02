@@ -66,6 +66,9 @@ func applyConfigDefaults(cfg *GlobalConfig) {
 	if cfg.ProfileViewMode == "" {
 		cfg.ProfileViewMode = "summary"
 	}
+	if cfg.HistorySize == 0 {
+		cfg.HistorySize = 10000
+	}
 }
 
 // LoadGlobal loads the raw global config without applying profile overrides.
@@ -479,14 +482,15 @@ func (c *GlobalConfig) Set(key, value string) error {
 	return nil
 }
 
-// parseHistorySize parses a history_size config value (must be integer > 0).
+// parseHistorySize parses a history_size config value.
+// -1 = unlimited, any positive integer = max entries.
 func parseHistorySize(value string) (int, error) {
 	n := 0
 	if _, err := fmt.Sscanf(value, "%d", &n); err != nil {
-		return 0, fmt.Errorf("history_size must be a positive integer (got %q)", value)
+		return 0, fmt.Errorf("history_size must be a positive integer or -1 (unlimited) (got %q)", value)
 	}
-	if n <= 0 {
-		return 0, fmt.Errorf("history_size must be a positive integer (got %d)", n)
+	if n == 0 || n < -1 {
+		return 0, fmt.Errorf("history_size must be a positive integer or -1 (unlimited) (got %d)", n)
 	}
 	return n, nil
 }

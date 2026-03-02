@@ -53,19 +53,7 @@ func completeLinkKeysFlag(_ *cobra.Command, _ []string, _ string) ([]string, cob
 
 // completeGroupNamesFlag completes group names for flag values (no args guard).
 func completeGroupNamesFlag(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-	profile, cfg, err := currentProfile()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	groups, err := store.ListGroups(config.ProfileGroupsFile(profile))
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	names := make([]string, len(groups))
-	for i, g := range groups {
-		names[i] = displayVar(g.Name, cfg.VariablePrefix, g.Params, cfg.VariableDisplay)
-	}
-	return names, cobra.ShellCompDirectiveNoFileComp
+	return completeGroupNamesAll(nil, nil, "")
 }
 
 var openCmd = &cobra.Command{
@@ -268,11 +256,11 @@ func openURLWithConfig(cfg *config.GlobalConfig, url string) error {
 	return b.OpenURL(url, opts)
 }
 
-// recordHistory appends an entry to the profile's history file.
+// recordHistory appends an entry to the type-specific history file.
 // Errors are silently ignored to not disrupt the open operation.
 func recordHistory(profile string, cfg *config.GlobalConfig, entry store.HistoryEntry) {
 	_ = store.AppendHistory(
-		config.ProfileHistoryFile(profile),
+		config.ProfileHistoryFile(profile, entry.Type),
 		entry,
 		cfg.HistorySize,
 		cfg.HistoryDedup,

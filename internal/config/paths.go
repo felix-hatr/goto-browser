@@ -53,7 +53,8 @@ func ProfileGroupsFile(name string) string {
 	return filepath.Join(ProfileDir(name), "groups.yaml")
 }
 
-// ProfileHistoryFile returns the history.yaml path for a profile.
-func ProfileHistoryFile(name string) string {
-	return filepath.Join(ProfileDir(name), "history.yaml")
+// ProfileHistoryFile returns the history JSONL path for a profile and entry type.
+// typ is one of "link", "group", "url".
+func ProfileHistoryFile(name, typ string) string {
+	return filepath.Join(ProfileDir(name), "history", typ+".jsonl")
 }

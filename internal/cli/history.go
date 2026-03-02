@@ -12,19 +12,40 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var historyTypes = []string{"link", "group", "url"}
+
+// allHistoryEntries loads and merges history from all type-specific files, sorted oldest-first.
+func allHistoryEntries(profile string) ([]store.HistoryEntry, error) {
+	var all []store.HistoryEntry
+	for _, typ := range historyTypes {
+		entries, err := store.LoadHistory(config.ProfileHistoryFile(profile, typ))
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, entries...)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Time.Before(all[j].Time)
+	})
+	return all, nil
+}
+
 var historyCmd = &cobra.Command{
 	Use:   "history",
 	Short: "View and manage open history",
 	Long:  "View, search, and manage your zebro open history.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return historyListCmd.RunE(cmd, args)
+		return cmd.Help()
 	},
 }
 
 func init() {
 	historyCmd.AddCommand(historyListCmd, historyStatsCmd, historyClearCmd, historyCompactCmd)
+	historyListCmd.Flags().SortFlags = false
+	historyListCmd.Flags().BoolP("link", "l", false, "Show only link history")
+	historyListCmd.Flags().BoolP("group", "g", false, "Show only group history")
+	historyListCmd.Flags().BoolP("url", "u", false, "Show only URL history")
 	historyListCmd.Flags().IntP("count", "n", 0, "Limit number of entries to show (default: all)")
-	historyListCmd.Flags().String("type", "", "Filter by type: link, group, or url")
 }
 
 var historyListCmd = &cobra.Command{
@@ -37,7 +58,21 @@ var historyListCmd = &cobra.Command{
 			return err
 		}
 
-		entries, err := store.LoadHistory(config.ProfileHistoryFile(profile))
+		linkOnly, _ := cmd.Flags().GetBool("link")
+		groupOnly, _ := cmd.Flags().GetBool("group")
+		urlOnly, _ := cmd.Flags().GetBool("url")
+
+		var entries []store.HistoryEntry
+		switch {
+		case linkOnly:
+			entries, err = store.LoadHistory(config.ProfileHistoryFile(profile, "link"))
+		case groupOnly:
+			entries, err = store.LoadHistory(config.ProfileHistoryFile(profile, "group"))
+		case urlOnly:
+			entries, err = store.LoadHistory(config.ProfileHistoryFile(profile, "url"))
+		default:
+			entries, err = allHistoryEntries(profile)
+		}
 		if err != nil {
 			return err
 		}
@@ -45,18 +80,6 @@ var historyListCmd = &cobra.Command{
 		if len(entries) == 0 {
 			fmt.Println("no history found")
 			return nil
-		}
-
-		// Filter by type
-		typeFilter, _ := cmd.Flags().GetString("type")
-		if typeFilter != "" {
-			filtered := entries[:0]
-			for _, e := range entries {
-				if e.Type == typeFilter {
-					filtered = append(filtered, e)
-				}
-			}
-			entries = filtered
 		}
 
 		// Show most recent first
@@ -97,7 +120,7 @@ var historyStatsCmd = &cobra.Command{
 			return err
 		}
 
-		entries, err := store.LoadHistory(config.ProfileHistoryFile(profile))
+		entries, err := allHistoryEntries(profile)
 		if err != nil {
 			return err
 		}
@@ -155,7 +178,7 @@ var historyStatsCmd = &cobra.Command{
 
 		fmt.Printf("total entries: %d\n", len(entries))
 		fmt.Printf("by type:\n")
-		for _, t := range []string{"link", "group", "url"} {
+		for _, t := range historyTypes {
 			if c, ok := typeCounts[t]; ok {
 				fmt.Printf("  %-8s %d\n", t+":", c)
 			}
@@ -185,9 +208,10 @@ var historyClearCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		path := config.ProfileHistoryFile(profile)
-		if err := store.SaveHistory(path, nil); err != nil {
-			return err
+		for _, typ := range historyTypes {
+			if err := store.SaveHistory(config.ProfileHistoryFile(profile, typ), nil); err != nil {
+				return err
+			}
 		}
 		fmt.Println("cleared history")
 		return nil
@@ -199,8 +223,7 @@ var historyCompactCmd = &cobra.Command{
 	Short: "Deduplicate and trim history",
 	Long: `Apply erasedups-style deduplication and history_size limit.
 
-When history_dedup is set, keeps the latest occurrence of each target.
-When history_dedup is not set (none), still applies dedup (keep latest per target).
+Keeps only the latest occurrence of each target per type.
 Always applies history_size limit if configured.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -209,43 +232,46 @@ Always applies history_size limit if configured.`,
 			return err
 		}
 
-		path := config.ProfileHistoryFile(profile)
-		entries, err := store.LoadHistory(path)
-		if err != nil {
-			return err
-		}
-		before := len(entries)
+		totalBefore, totalAfter := 0, 0
+		for _, typ := range historyTypes {
+			path := config.ProfileHistoryFile(profile, typ)
+			entries, err := store.LoadHistory(path)
+			if err != nil {
+				return err
+			}
+			totalBefore += len(entries)
 
-		// Erasedups: keep only the latest occurrence of each target.
-		// Iterate from newest to oldest, skip duplicates, then reverse.
-		seen := make(map[string]bool, len(entries))
-		deduped := make([]store.HistoryEntry, 0, len(entries))
-		for i := len(entries) - 1; i >= 0; i-- {
-			key := entries[i].Type + ":" + entries[i].Target
-			if !seen[key] {
-				seen[key] = true
-				deduped = append(deduped, entries[i])
+			// Erasedups: keep only the latest occurrence of each target.
+			seen := make(map[string]bool, len(entries))
+			deduped := make([]store.HistoryEntry, 0, len(entries))
+			for i := len(entries) - 1; i >= 0; i-- {
+				key := entries[i].Target
+				if !seen[key] {
+					seen[key] = true
+					deduped = append(deduped, entries[i])
+				}
+			}
+			// Reverse to restore chronological order
+			for i, j := 0, len(deduped)-1; i < j; i, j = i+1, j-1 {
+				deduped[i], deduped[j] = deduped[j], deduped[i]
+			}
+
+			// Apply size limit
+			if cfg.HistorySize > 0 && len(deduped) > cfg.HistorySize {
+				deduped = deduped[len(deduped)-cfg.HistorySize:]
+			}
+
+			totalAfter += len(deduped)
+			if err := store.SaveHistory(path, deduped); err != nil {
+				return err
 			}
 		}
-		// Reverse to restore chronological order
-		for i, j := 0, len(deduped)-1; i < j; i, j = i+1, j-1 {
-			deduped[i], deduped[j] = deduped[j], deduped[i]
-		}
 
-		// Apply size limit
-		if cfg.HistorySize > 0 && len(deduped) > cfg.HistorySize {
-			deduped = deduped[len(deduped)-cfg.HistorySize:]
-		}
-
-		after := len(deduped)
-		if err := store.SaveHistory(path, deduped); err != nil {
-			return err
-		}
-		removed := before - after
+		removed := totalBefore - totalAfter
 		if removed > 0 {
-			fmt.Printf("compacted history: removed %d entries, kept %d\n", removed, after)
+			fmt.Printf("compacted history: removed %d entries, kept %d\n", removed, totalAfter)
 		} else {
-			fmt.Printf("history already compact (%d entries)\n", after)
+			fmt.Printf("history already compact (%d entries)\n", totalAfter)
 		}
 		return nil
 	},
