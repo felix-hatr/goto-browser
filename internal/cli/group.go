@@ -73,6 +73,7 @@ func init() {
 		fmt.Fprintf(w, "  $ zebro group add morning jira/PROJ-100\n")
 		fmt.Fprintf(w, "  $ zebro group remove morning slack\n")
 		fmt.Fprintf(w, "  $ zebro group view morning\n")
+		fmt.Fprintf(w, "  $ zebro group delete morning\n")
 		fmt.Fprintf(w, "  $ zebro open -g morning\n")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "LEARN MORE")
@@ -84,11 +85,16 @@ func init() {
 var groupCreateCmd = &cobra.Command{
 	Use:   "create <name> [link-key...]",
 	Short: "Create a new group",
-	Long: `Create a named group of links that can be opened together.
-The group name may include variables (e.g. dev/@account/@repo).
-Link keys may reference the group's variables or be concrete.`,
-	Example: `  $ zebro group create morning github jira/PROJ-100
-  $ zebro group create dev/@account/@repo github/@account github/@account/@repo`,
+	Long: `Create a named group of links that open together with 'zebro open -g'.
+
+The group name may include variable placeholders (e.g. dev/@account/@repo).
+Variables in the name are mapped positionally to the link keys.
+Link keys without variables create a concrete group.
+
+If the group already exists, it is replaced.`,
+	Example: `  $ zebro group create morning github slack jira/PROJ-100
+  $ zebro group create dev/@account/@repo github/@account github/@account/@repo
+  $ zebro group create focus -d "deep work"`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -147,9 +153,11 @@ Link keys may reference the group's variables or be concrete.`,
 }
 
 var groupListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all groups",
-	Args:  cobra.NoArgs,
+	Use:     "list",
+	Short:   "List all groups",
+	Long:    "List all groups in the current profile with their link counts.",
+	Example: "  $ zebro group list",
+	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile, cfg, err := currentProfile()
 		if err != nil {
@@ -192,8 +200,12 @@ var groupListCmd = &cobra.Command{
 }
 
 var groupViewCmd = &cobra.Command{
-	Use:               "view <name>",
-	Short:             "Show group details",
+	Use:   "view <name>",
+	Short: "Show group details",
+	Long: `Show details of a group including its links and their resolved URLs.
+Links are listed in order with 1-based position numbers.`,
+	Example: `  $ zebro group view morning
+  $ zebro group view dev/@account/@repo`,
 	ValidArgsFunction: completeGroupNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
@@ -252,7 +264,9 @@ var groupViewCmd = &cobra.Command{
 
 var groupDeleteCmd = &cobra.Command{
 	Use:               "delete <name>",
-	Short:             "Remove a group",
+	Short:             "Delete a group",
+	Long:              "Delete a group by name. The group's links are not affected.",
+	Example:           "  $ zebro group delete morning",
 	ValidArgsFunction: completeGroupNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
@@ -287,6 +301,13 @@ var groupDeleteCmd = &cobra.Command{
 var groupAddCmd = &cobra.Command{
 	Use:   "add <name> <link-key...>",
 	Short: "Add links to a group",
+	Long: `Add one or more link keys to an existing group.
+
+By default links are appended to the end. Use --at to insert at a specific
+1-based position, shifting existing links down.`,
+	Example: `  $ zebro group add morning notion
+  $ zebro group add morning notion figma
+  $ zebro group add morning notion --at 1`,
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeGroupNames(cmd, args, toComplete)
