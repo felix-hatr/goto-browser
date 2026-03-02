@@ -311,10 +311,11 @@ var profileUseCmd = &cobra.Command{
 		if !config.ProfileExists(name) {
 			return fmt.Errorf("profile %q does not exist (run: zebro profile create %s)", name, name)
 		}
+		prev, _ := config.GetActiveProfile()
 		if err := config.SetActiveProfile(name); err != nil {
 			return err
 		}
-		fmt.Printf("switched to profile %q\n", name)
+		fmt.Printf("switched to profile %q (from %q)\n", name, prev)
 		return nil
 	},
 }
