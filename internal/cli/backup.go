@@ -106,6 +106,27 @@ func copyProfileDataFromDir(srcDir, dstProfile string) error {
 	return nil
 }
 
+// completeBackupProfileNames returns profile names that have backups, for tab completion.
+// Unlike completeProfileNames, this includes deleted profiles that still have backups.
+func completeBackupProfileNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) != 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	backups, err := listAllBackups()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, b := range backups {
+		if !seen[b.ProfileName] {
+			seen[b.ProfileName] = true
+			names = append(names, b.ProfileName)
+		}
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
 var profileBackupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Manage profile backups",
@@ -132,7 +153,7 @@ var profileBackupListCmd = &cobra.Command{
 	Example: `  $ zebro profile backup list           # all backups
   $ zebro profile backup list work      # backups for 'work' profile`,
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: completeProfileNames,
+	ValidArgsFunction: completeBackupProfileNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var backups []profileBackup
 		var err error
@@ -180,8 +201,7 @@ var profileBackupViewCmd = &cobra.Command{
 	Args: cobra.ExactArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
-			profiles, _ := config.ListProfiles()
-			return profiles, cobra.ShellCompDirectiveNoFileComp
+			return completeBackupProfileNames(cmd, args, toComplete)
 		}
 		if len(args) == 1 {
 			baks, _ := findBackupsFor(args[0])
@@ -279,7 +299,7 @@ var profileBackupRestoreCmd = &cobra.Command{
   $ zebro profile backup restore work --as work2
   $ zebro profile backup restore work --force`,
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: completeProfileNames,
+	ValidArgsFunction: completeBackupProfileNames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
@@ -361,8 +381,7 @@ var profileBackupDeleteCmd = &cobra.Command{
 	Args: cobra.ExactArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
-			profiles, _ := config.ListProfiles()
-			return profiles, cobra.ShellCompDirectiveNoFileComp
+			return completeBackupProfileNames(cmd, args, toComplete)
 		}
 		if len(args) == 1 {
 			baks, _ := findBackupsFor(args[0])
