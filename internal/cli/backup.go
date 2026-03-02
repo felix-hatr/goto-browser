@@ -146,6 +146,7 @@ func init() {
 		profileBackupCreateCmd,
 		profileBackupRestoreCmd,
 		profileBackupDeleteCmd,
+		profileBackupClearCmd,
 	)
 	profileBackupViewCmd.Flags().BoolP("detail", "d", false, "Show full lists of links, aliases, and groups")
 	profileBackupRestoreCmd.Flags().String("from", "", "Backup timestamp to restore from (default: latest)")
@@ -431,7 +432,7 @@ var profileBackupDeleteCmd = &cobra.Command{
 	Short:   "Delete a specific backup",
 	Long:    "Permanently delete a single backup entry.",
 	Example: `  $ zebro profile backup delete work 20260302-151524`,
-	Args:    cobra.ExactArgs(2),
+	Args:    cobra.MaximumNArgs(2),
 	ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeBackupProfileNames(cmd, args, toComplete)
@@ -447,6 +448,9 @@ var profileBackupDeleteCmd = &cobra.Command{
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 2 {
+			return cmd.Help()
+		}
 		name, ts := args[0], args[1]
 		baks, err := findBackupsFor(name)
 		if err != nil {
@@ -466,6 +470,33 @@ var profileBackupDeleteCmd = &cobra.Command{
 			return fmt.Errorf("deleting backup: %w", err)
 		}
 		fmt.Printf("deleted backup %s for profile %q\n", ts, name)
+		return nil
+	},
+}
+
+var profileBackupClearCmd = &cobra.Command{
+	Use:               "clear <name>",
+	Short:             "Delete all backups for a profile",
+	Long:              "Permanently delete all backups for a specific profile.",
+	Example:           `  $ zebro profile backup clear work`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeBackupProfileNames,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+		baks, err := findBackupsFor(name)
+		if err != nil {
+			return err
+		}
+		if len(baks) == 0 {
+			fmt.Printf("no backups found for profile %q\n", name)
+			return nil
+		}
+		for _, b := range baks {
+			if err := os.RemoveAll(b.Path); err != nil {
+				return fmt.Errorf("deleting backup %s: %w", b.Timestamp, err)
+			}
+		}
+		fmt.Printf("deleted %d backup(s) for profile %q\n", len(baks), name)
 		return nil
 	},
 }
