@@ -96,10 +96,7 @@ func init() {
 			return
 		}
 
-		p := "@"
-		if cfg, err := config.Load(); err == nil {
-			p = cfg.VariablePrefix
-		}
+		p := loadVariablePrefix()
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
@@ -154,6 +151,14 @@ func init() {
 
 		w.Flush()
 	})
+}
+
+// loadVariablePrefix returns the configured variable prefix, defaulting to "@" on error.
+func loadVariablePrefix() string {
+	if cfg, err := config.Load(); err == nil {
+		return cfg.VariablePrefix
+	}
+	return "@"
 }
 
 // displayVar renders a stored key/URL for output based on the configured display mode.

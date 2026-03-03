@@ -27,10 +27,7 @@ func init() {
 			defaultHelp(cmd, args)
 			return
 		}
-		p := "@"
-		if cfg, err := config.Load(); err == nil {
-			p = cfg.VariablePrefix
-		}
+		p := loadVariablePrefix()
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "Manage links — URL patterns with optional variable placeholders.")
 		fmt.Fprintln(w, "")

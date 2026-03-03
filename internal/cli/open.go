@@ -29,8 +29,8 @@ func init() {
 	openCmd.Flags().StringVarP(&openBrowserOverride, "browser", "b", "", "Browser to use for this command")
 	openCmd.Flags().BoolVar(&openDryRun, "dry-run", false, "Print URL(s) without opening the browser")
 
-	openCmd.RegisterFlagCompletionFunc("link", completeLinkKeysFlag)
-	openCmd.RegisterFlagCompletionFunc("group", completeGroupNamesFlag)
+	openCmd.RegisterFlagCompletionFunc("link", completeLinkKeysAll)
+	openCmd.RegisterFlagCompletionFunc("group", completeGroupNamesAll)
 
 	openCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if openGroupFlag != "" {
@@ -45,16 +45,6 @@ func init() {
 		}
 		return completeLinkKeys(cmd, args, toComplete)
 	}
-}
-
-// completeLinkKeysFlag completes link keys for flag values (no args guard).
-func completeLinkKeysFlag(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-	return completeLinkKeysAll(nil, nil, "")
-}
-
-// completeGroupNamesFlag completes group names for flag values (no args guard).
-func completeGroupNamesFlag(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-	return completeGroupNamesAll(nil, nil, "")
 }
 
 var openCmd = &cobra.Command{
