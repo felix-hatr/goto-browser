@@ -324,7 +324,7 @@ var profileUseCmd = &cobra.Command{
 }
 
 var profileRenameCmd = &cobra.Command{
-	Use:   "rename <old> <new>",
+	Use:   "rename <old-name> <new-name>",
 	Short: "Rename a profile",
 	Long:  "Rename a profile. If it is the active profile, the active profile is updated automatically.\nExisting backups are also renamed to match the new profile name.",
 	Example: `  $ zebro profile rename work work-old

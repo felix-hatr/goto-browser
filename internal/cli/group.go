@@ -271,8 +271,8 @@ URLs are listed in order with 1-based position numbers.`,
 
 var groupDeleteCmd = &cobra.Command{
 	Use:               "delete <name>",
-	Short:             "Delete a group",
-	Long:              "Delete a group by name.",
+	Short:             "Remove a group",
+	Long:              "Remove a group by name.",
 	Example:           "  $ zebro group delete morning",
 	ValidArgsFunction: completeGroupNames,
 	RunE: func(cmd *cobra.Command, args []string) error {

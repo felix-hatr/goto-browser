@@ -11,7 +11,7 @@ import (
 
 var doctorCmd = &cobra.Command{
 	Use:     "doctor",
-	Short:   "Run diagnostics on your zebro setup",
+	Short:   "Run diagnostics",
 	Long:    "Check your zebro setup for common configuration issues.",
 	Example: `  $ zebro doctor
   $ zebro doctor -p work`,
