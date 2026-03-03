@@ -107,7 +107,6 @@ based on the open_default config setting (default: link).`,
 					Time:   time.Now().UTC(),
 					Type:   "url",
 					Target: openURLFlag,
-					URLs:   []string{openURLFlag},
 				})
 			}
 			return nil
@@ -129,7 +128,6 @@ based on the open_default config setting (default: link).`,
 						Time:   time.Now().UTC(),
 						Type:   "url",
 						Target: target,
-						URLs:   []string{target},
 					})
 				}
 				return nil
@@ -162,7 +160,7 @@ func runOpenLinkKey(key, profile string, cfg *config.GlobalConfig) error {
 			Time:   time.Now().UTC(),
 			Type:   "link",
 			Target: key,
-			URLs:   []string{result.URL},
+			URL:    result.URL,
 		})
 	}
 	return nil
