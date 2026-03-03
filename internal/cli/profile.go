@@ -32,9 +32,14 @@ func init() {
 		profileUseCmd,
 		profileRenameCmd,
 		profileBackupCmd,
+		profileExportCmd,
+		profileImportCmd,
 	)
 	profileCreateCmd.Flags().StringP("description", "d", "", "Profile description")
 	profileCreateCmd.Flags().StringP("source", "s", "", "Copy links and groups from an existing profile")
+	profileExportCmd.Flags().StringP("output", "o", "", "Output file (default: stdout)")
+	profileImportCmd.Flags().String("as", "", "Import as a new profile with this name (default: use name from file)")
+	profileImportCmd.Flags().Bool("force", false, "Overwrite existing profile if it exists")
 
 	defaultHelp := profileCmd.HelpFunc()
 	profileCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
@@ -55,6 +60,8 @@ func init() {
 		fmt.Fprintln(w, "  create:\tCreate a new profile")
 		fmt.Fprintln(w, "  rename:\tRename a profile")
 		fmt.Fprintln(w, "  delete:\tRemove a profile")
+		fmt.Fprintln(w, "  export:\tExport a profile to a YAML file")
+		fmt.Fprintln(w, "  import:\tImport a profile from a YAML file")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "BACKUP COMMANDS")
 		fmt.Fprintln(w, "  backup list:\tList all backups (or backups for a specific profile)")
@@ -474,4 +481,175 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return profiles, cobra.ShellCompDirectiveNoFileComp
+}
+
+var profileExportCmd = &cobra.Command{
+	Use:   "export <name> [-o <file>]",
+	Short: "Export a profile to a YAML file",
+	Long:  "Export links, groups, and config of a profile to a YAML file (default: stdout).",
+	Example: `  $ zebro profile export default
+  $ zebro profile export work -o /tmp/work-profile.yaml`,
+	Args:              cobra.MaximumNArgs(1),
+	ValidArgsFunction: completeProfileNames,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		name := cfg.ActiveProfile
+		if len(args) > 0 {
+			name = args[0]
+		}
+		if !config.ProfileExists(name) {
+			return fmt.Errorf("profile %q does not exist", name)
+		}
+
+		lf, err := store.LoadLinks(config.ProfileLinksFile(name))
+		if err != nil {
+			return err
+		}
+		gf, err := store.LoadGroups(config.ProfileGroupsFile(name))
+		if err != nil {
+			return err
+		}
+		pc, err := config.LoadProfile(name)
+		if err != nil {
+			return err
+		}
+
+		// Serialize ProfileConfig fields to map
+		cfgMap := make(map[string]string)
+		for _, k := range profileConfigKeys() {
+			if v, err := pc.Get(k.key); err == nil && v != "" {
+				cfgMap[k.key] = v
+			}
+		}
+
+		ef := &store.ExportFile{
+			Version: "1",
+			Links:   lf.Links,
+			Groups:  gf.Groups,
+			Config:  cfgMap,
+		}
+
+		outPath, _ := cmd.Flags().GetString("output")
+		if outPath == "" {
+			data, err := store.MarshalExportFile(ef)
+			if err != nil {
+				return err
+			}
+			fmt.Print(string(data))
+			return nil
+		}
+		if err := store.SaveExportFile(outPath, ef); err != nil {
+			return err
+		}
+		fmt.Printf("exported profile %q (%d links, %d groups) to %s\n", name, len(lf.Links), len(gf.Groups), outPath)
+		return nil
+	},
+}
+
+var profileImportCmd = &cobra.Command{
+	Use:   "import <file>",
+	Short: "Import a profile from a YAML file",
+	Long: `Import a profile from an export YAML file.
+
+The profile name is taken from the file's config.name field.
+Use --as to override the profile name.
+Use --force to overwrite an existing profile.`,
+	Example: `  $ zebro profile import /tmp/work-profile.yaml
+  $ zebro profile import /tmp/work-profile.yaml --as work2
+  $ zebro profile import /tmp/work-profile.yaml --force`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: cobra.NoFileCompletions,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ef, err := store.LoadExportFile(args[0])
+		if err != nil {
+			return err
+		}
+
+		asName, _ := cmd.Flags().GetString("as")
+		force, _ := cmd.Flags().GetBool("force")
+
+		// Determine profile name
+		name := asName
+		if name == "" {
+			name = ef.Config["name"]
+		}
+		if name == "" {
+			return fmt.Errorf("profile name not found in export file; use --as <name>")
+		}
+		if err := validateProfileName(name); err != nil {
+			return err
+		}
+
+		if config.ProfileExists(name) && !force {
+			return fmt.Errorf("profile %q already exists (use --force to overwrite)", name)
+		}
+
+		desc := ef.Config["description"]
+		if err := config.EnsureProfile(name, desc); err != nil {
+			return err
+		}
+
+		// Restore links
+		if len(ef.Links) > 0 {
+			lf, err := store.LoadLinks(config.ProfileLinksFile(name))
+			if err != nil {
+				return err
+			}
+			if force {
+				lf.Links = ef.Links
+			} else {
+				for key, entry := range ef.Links {
+					if _, exists := lf.Links[key]; !exists {
+						lf.Links[key] = entry
+					}
+				}
+			}
+			if err := store.SaveLinks(config.ProfileLinksFile(name), lf); err != nil {
+				return err
+			}
+		}
+
+		// Restore groups
+		if len(ef.Groups) > 0 {
+			gf, err := store.LoadGroups(config.ProfileGroupsFile(name))
+			if err != nil {
+				return err
+			}
+			if force {
+				gf.Groups = ef.Groups
+			} else {
+				for gname, entry := range ef.Groups {
+					if _, exists := gf.Groups[gname]; !exists {
+						gf.Groups[gname] = entry
+					}
+				}
+			}
+			if err := store.SaveGroups(config.ProfileGroupsFile(name), gf); err != nil {
+				return err
+			}
+		}
+
+		// Restore config
+		if len(ef.Config) > 0 {
+			pc, err := config.LoadProfile(name)
+			if err != nil {
+				return err
+			}
+			for key, val := range ef.Config {
+				if key == "name" || key == "description" {
+					continue
+				}
+				_ = pc.Set(key, val)
+			}
+			if err := config.SaveProfile(name, pc); err != nil {
+				return err
+			}
+		}
+
+		fmt.Printf("imported profile %q (%d links, %d groups)\n", name, len(ef.Links), len(ef.Groups))
+		return nil
+	},
 }
