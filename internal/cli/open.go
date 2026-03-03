@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/felix-hatr/goto-browser/internal/browser"
@@ -11,33 +12,67 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// openItem holds a single open target with its kind (link/group/url).
+type openItem struct {
+	kind  string
+	value string
+}
+
+// openItemAccumulator implements pflag.Value so that -l/-g/-u flags append to a shared slice
+// in command-line order.
+type openItemAccumulator struct {
+	items *[]openItem
+	kind  string
+}
+
+func (a *openItemAccumulator) Set(v string) error {
+	*a.items = append(*a.items, openItem{a.kind, v})
+	return nil
+}
+
+func (a *openItemAccumulator) Type() string { return "string" }
+
+func (a *openItemAccumulator) String() string {
+	var vals []string
+	for _, it := range *a.items {
+		if it.kind == a.kind {
+			vals = append(vals, it.value)
+		}
+	}
+	return strings.Join(vals, ",")
+}
+
+var openItems []openItem
 var openNewWindow bool
 var openNewTab bool
 var openDryRun bool
 var openBrowserOverride string
-var openGroupFlag string
-var openLinkFlag string
-var openURLFlag string
+var openNoHistory bool
 
 func init() {
 	openCmd.Flags().SortFlags = false
-	openCmd.Flags().StringVarP(&openLinkFlag, "link", "l", "", "Open a link by key")
-	openCmd.Flags().StringVarP(&openGroupFlag, "group", "g", "", "Open a group by name")
-	openCmd.Flags().StringVarP(&openURLFlag, "url", "u", "", "Open a direct URL")
+	openCmd.Flags().VarP(&openItemAccumulator{&openItems, "link"}, "link", "l", "Open a link by key (repeatable)")
+	openCmd.Flags().VarP(&openItemAccumulator{&openItems, "group"}, "group", "g", "Open a group by name (repeatable)")
+	openCmd.Flags().VarP(&openItemAccumulator{&openItems, "url"}, "url", "u", "Open a direct URL (repeatable)")
 	openCmd.Flags().BoolVarP(&openNewWindow, "new-window", "n", false, "Open in a new window (overrides config open_mode)")
 	openCmd.Flags().BoolVarP(&openNewTab, "new-tab", "t", false, "Open in a new tab (overrides config open_mode)")
 	openCmd.Flags().StringVarP(&openBrowserOverride, "browser", "b", "", "Browser to use for this command")
 	openCmd.Flags().BoolVar(&openDryRun, "dry-run", false, "Print URL(s) without opening the browser")
+	openCmd.Flags().BoolVar(&openNoHistory, "no-history", false, "Do not record to history")
 
 	openCmd.RegisterFlagCompletionFunc("link", completeLinkKeysAll)
 	openCmd.RegisterFlagCompletionFunc("group", completeGroupNamesAll)
 
 	openCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if openGroupFlag != "" {
-			return completeGroupNames(cmd, args, toComplete)
-		}
-		if openLinkFlag != "" {
-			return completeLinkKeys(cmd, args, toComplete)
+		// Determine last kind from openItems for context-aware completion
+		if len(openItems) > 0 {
+			last := openItems[len(openItems)-1]
+			switch last.kind {
+			case "group":
+				return completeGroupNames(cmd, args, toComplete)
+			case "link":
+				return completeLinkKeys(cmd, args, toComplete)
+			}
 		}
 		_, cfg, err := currentProfile()
 		if err == nil && cfg.OpenDefault == "group" {
@@ -48,37 +83,26 @@ func init() {
 }
 
 var openCmd = &cobra.Command{
-	Use:   "open [key]",
+	Use:   "open [key...]",
 	Short: "Open a link or group in the browser",
-	Long: `Open a link key or group in the browser.
+	Long: `Open one or more links, groups, or URLs in the browser.
 
 Use -l/--link to open a link, -g/--group to open a group, or -u/--url to open a direct URL.
-Without a flag, the positional argument is treated as a link, group, or URL
+Flags are repeatable and processed in the order they appear on the command line.
+Without flags, positional arguments are treated as links, groups, or URLs
 based on the open_default config setting (default: link).`,
 	Example: `  $ zebro open github/octocat/hello-world
   $ zebro open jira/PROJ-123
   $ zebro open -g morning
-  $ zebro open -l github/octocat/hello-world
+  $ zebro open -l github -l jira/PROJ-100
+  $ zebro open -l github -g morning
   $ zebro open -u https://example.com
-  $ zebro open jira/PROJ-123 --dry-run`,
-	Args: cobra.MaximumNArgs(1),
+  $ zebro open jira/PROJ-123 --dry-run
+  $ zebro open github --no-history`,
+	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if openNewWindow && openNewTab {
 			return fmt.Errorf("--new-window and --new-tab are mutually exclusive")
-		}
-		// Mutual exclusion among -g, -l, -u
-		flagCount := 0
-		if openGroupFlag != "" {
-			flagCount++
-		}
-		if openLinkFlag != "" {
-			flagCount++
-		}
-		if openURLFlag != "" {
-			flagCount++
-		}
-		if flagCount > 1 {
-			return fmt.Errorf("-g/--group, -l/--link, and -u/--url are mutually exclusive")
 		}
 
 		// Load config once for all paths
@@ -87,46 +111,52 @@ based on the open_default config setting (default: link).`,
 			return err
 		}
 
-		switch {
-		case openURLFlag != "":
-			if err := openURLWithConfig(cfg, openURLFlag); err != nil {
-				return err
-			}
-			if !openDryRun {
-				recordHistory(profile, cfg, store.HistoryEntry{
-					Time:   time.Now().UTC(),
-					Type:   "url",
-					Target: openURLFlag,
-				})
-			}
-			return nil
-		case openGroupFlag != "":
-			return runOpenGroup(openGroupFlag, profile, cfg)
-		case openLinkFlag != "":
-			return runOpenLinkKey(openLinkFlag, profile, cfg)
-		case len(args) == 1:
-			target := args[0]
+		// Build the ordered list of items to open
+		// First: -l/-g/-u flags (already in openItems in command-line order)
+		// Then: positional args (treated by open_default)
+		items := make([]openItem, len(openItems))
+		copy(items, openItems)
+
+		for _, arg := range args {
 			switch cfg.OpenDefault {
 			case "group":
-				return runOpenGroup(target, profile, cfg)
+				items = append(items, openItem{"group", arg})
 			case "url":
-				if err := openURLWithConfig(cfg, target); err != nil {
+				items = append(items, openItem{"url", arg})
+			default:
+				items = append(items, openItem{"link", arg})
+			}
+		}
+
+		if len(items) == 0 {
+			return cmd.Help()
+		}
+
+		// Process items in order, fail-fast
+		for _, item := range items {
+			switch item.kind {
+			case "url":
+				if err := openURLWithConfig(cfg, item.value); err != nil {
 					return err
 				}
-				if !openDryRun {
+				if !openDryRun && !openNoHistory {
 					recordHistory(profile, cfg, store.HistoryEntry{
 						Time:   time.Now().UTC(),
 						Type:   "url",
-						Target: target,
+						Target: item.value,
 					})
 				}
-				return nil
-			default:
-				return runOpenLinkKey(target, profile, cfg)
+			case "group":
+				if err := runOpenGroup(item.value, profile, cfg); err != nil {
+					return err
+				}
+			default: // "link"
+				if err := runOpenLinkKey(item.value, profile, cfg); err != nil {
+					return err
+				}
 			}
-		default:
-			return cmd.Help()
 		}
+		return nil
 	},
 }
 
@@ -145,7 +175,7 @@ func runOpenLinkKey(key, profile string, cfg *config.GlobalConfig) error {
 	if err := openURLWithConfig(cfg, result.URL); err != nil {
 		return err
 	}
-	if !openDryRun {
+	if !openDryRun && !openNoHistory {
 		recordHistory(profile, cfg, store.HistoryEntry{
 			Time:   time.Now().UTC(),
 			Type:   "link",
@@ -208,12 +238,14 @@ func runOpenGroup(input, profile string, cfg *config.GlobalConfig) error {
 	if err := b.OpenURLs(urls, browser.OpenOptions{NewWindow: true}); err != nil {
 		return err
 	}
-	recordHistory(profile, cfg, store.HistoryEntry{
-		Time:   time.Now().UTC(),
-		Type:   "group",
-		Target: input,
-		URLs:   urls,
-	})
+	if !openNoHistory {
+		recordHistory(profile, cfg, store.HistoryEntry{
+			Time:   time.Now().UTC(),
+			Type:   "group",
+			Target: input,
+			URLs:   urls,
+		})
+	}
 	return nil
 }
 
