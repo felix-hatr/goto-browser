@@ -85,6 +85,33 @@ func ListGroups(path string) ([]Group, error) {
 	return groups, nil
 }
 
+// RemoveFromGroup removes entries matching targets from the group's URL list.
+// Returns the count of removed entries.
+func RemoveFromGroup(path, name string, targets []string) (int, error) {
+	gf, err := LoadGroups(path)
+	if err != nil {
+		return 0, err
+	}
+	entry, ok := gf.Groups[name]
+	if !ok {
+		return 0, fmt.Errorf("group %q not found", name)
+	}
+	removeSet := make(map[string]bool, len(targets))
+	for _, t := range targets {
+		removeSet[t] = true
+	}
+	filtered := make([]string, 0, len(entry.URLs))
+	for _, u := range entry.URLs {
+		if !removeSet[u] {
+			filtered = append(filtered, u)
+		}
+	}
+	removed := len(entry.URLs) - len(filtered)
+	entry.URLs = filtered
+	gf.Groups[name] = entry
+	return removed, SaveGroups(path, gf)
+}
+
 // InsertIntoGroup adds URL templates to an existing group at the given position (1-based).
 // at=0 means append to end.
 func InsertIntoGroup(path, name string, urlTemplates []string, at int) error {

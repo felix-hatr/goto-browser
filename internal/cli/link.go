@@ -113,7 +113,7 @@ var linkCreateCmd = &cobra.Command{
 		}
 
 		// Step 3: Convert to positional storage
-		posKey, params := store.NormalizeToPositional(normKey)
+		posKey, params := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 		nameToPos := store.NameToPos(params)
 		posURL, _ := store.ApplyPositional(normURL, nameToPos)
 
@@ -226,8 +226,7 @@ var linkViewCmd = &cobra.Command{
 			return err
 		}
 
-		normKey := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posKey, _ := store.NormalizeToPositional(normKey)
+		posKey, _ := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 
 		link, err := store.GetLink(config.ProfileLinksFile(profile), posKey)
 		if err != nil {
@@ -262,8 +261,7 @@ var linkDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		normKey := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posKey, _ := store.NormalizeToPositional(normKey)
+		posKey, _ := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 
 		linksPath := config.ProfileLinksFile(profile)
 		lf, err := store.LoadLinks(linksPath)
@@ -320,11 +318,8 @@ var linkRenameCmd = &cobra.Command{
 			return err
 		}
 
-		normOld := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		oldPosKey, oldParams := store.NormalizeToPositional(normOld)
-
-		normNew := store.NormalizeVars(args[1], cfg.VariablePrefix)
-		newPosKey, newParams := store.NormalizeToPositional(normNew)
+		oldPosKey, oldParams := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
+		newPosKey, newParams := store.NormalizeAndPositionalize(args[1], cfg.VariablePrefix)
 
 		if len(oldParams) != len(newParams) {
 			return fmt.Errorf("variable count mismatch: old key has %d variable(s), new key has %d", len(oldParams), len(newParams))

@@ -39,8 +39,7 @@ func init() {
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		normName := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posName, _ := store.NormalizeToPositional(normName)
+		posName, _ := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 		group, err := store.GetGroup(config.ProfileGroupsFile(profile), posName)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -143,8 +142,7 @@ If the group already exists, it is replaced.`,
 		rawURLs, _ := cmd.Flags().GetStringArray("url")
 		desc, _ := cmd.Flags().GetString("description")
 
-		normName := store.NormalizeVars(name, cfg.VariablePrefix)
-		posName, params := store.NormalizeToPositional(normName)
+		posName, params := store.NormalizeAndPositionalize(name, cfg.VariablePrefix)
 		nameToPos := store.NameToPos(params)
 
 		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
@@ -245,8 +243,7 @@ URLs are listed in order with 1-based position numbers.`,
 			return err
 		}
 
-		normName := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posName, _ := store.NormalizeToPositional(normName)
+		posName, _ := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 
 		group, err := store.GetGroup(config.ProfileGroupsFile(profile), posName)
 		if err != nil {
@@ -287,8 +284,7 @@ var groupDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		normName := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posName, _ := store.NormalizeToPositional(normName)
+		posName, _ := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 
 		groupsPath := config.ProfileGroupsFile(profile)
 		gf, err := store.LoadGroups(groupsPath)
@@ -342,8 +338,7 @@ By default entries are appended to the end. Use --at to insert at a specific
 		name := args[0]
 		at, _ := cmd.Flags().GetInt("at")
 
-		normName := store.NormalizeVars(name, cfg.VariablePrefix)
-		posName, _ := store.NormalizeToPositional(normName)
+		posName, _ := store.NormalizeAndPositionalize(name, cfg.VariablePrefix)
 
 		groupsPath := config.ProfileGroupsFile(profile)
 		gf, err := store.LoadGroups(groupsPath)
@@ -424,8 +419,7 @@ Removing by position (--at) removes the URL at that 1-based index.`,
 			return err
 		}
 
-		normName := store.NormalizeVars(name, cfg.VariablePrefix)
-		posName, _ := store.NormalizeToPositional(normName)
+		posName, _ := store.NormalizeAndPositionalize(name, cfg.VariablePrefix)
 
 		groupsPath := config.ProfileGroupsFile(profile)
 		gf, err := store.LoadGroups(groupsPath)
@@ -456,43 +450,23 @@ Removing by position (--at) removes the URL at that 1-based index.`,
 		}
 
 		// Remove by link key — resolve each key to its URL template and remove matching entries
-		links, err := store.ListLinks(config.ProfileLinksFile(profile))
-		if err != nil {
-			return err
-		}
 		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
 		if err != nil {
 			return err
 		}
 		nameToPos := store.NameToPos(entry.Params)
-		removeURLs, err := resolveGroupEntries(keys, nil, cfg.VariablePrefix, nameToPos, posName, lf, links)
+		removeURLs, err := resolveGroupEntries(keys, nil, cfg.VariablePrefix, nameToPos, posName, lf, store.LinksFromFile(lf))
 		if err != nil {
 			return err
 		}
-		removeSet := make(map[string]bool, len(removeURLs))
-		for _, u := range removeURLs {
-			removeSet[u] = true
+		removedCount, err := store.RemoveFromGroup(groupsPath, posName, removeURLs)
+		if err != nil {
+			return err
 		}
-		filtered := make([]string, 0, len(entry.URLs))
-		for _, u := range entry.URLs {
-			if !removeSet[u] {
-				filtered = append(filtered, u)
-			}
-		}
-		removedCount := len(entry.URLs) - len(filtered)
 		if removedCount == 0 {
 			return fmt.Errorf("no matching entries found in group %q", name)
 		}
-		entry.URLs = filtered
-		gf.Groups[posName] = entry
-		if err := store.SaveGroups(groupsPath, gf); err != nil {
-			return err
-		}
-		var displayKeys []string
-		for _, k := range keys {
-			displayKeys = append(displayKeys, k)
-		}
-		fmt.Printf("removed %s from group %q\n", strings.Join(displayKeys, ", "), name)
+		fmt.Printf("removed %s from group %q\n", strings.Join(keys, ", "), name)
 		return nil
 	},
 }
@@ -533,11 +507,8 @@ var groupRenameCmd = &cobra.Command{
 			return err
 		}
 
-		normOld := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		oldPosName, oldParams := store.NormalizeToPositional(normOld)
-
-		normNew := store.NormalizeVars(args[1], cfg.VariablePrefix)
-		newPosName, newParams := store.NormalizeToPositional(normNew)
+		oldPosName, oldParams := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
+		newPosName, newParams := store.NormalizeAndPositionalize(args[1], cfg.VariablePrefix)
 
 		if len(oldParams) != len(newParams) {
 			return fmt.Errorf("variable count mismatch: old name has %d variable(s), new name has %d", len(oldParams), len(newParams))
