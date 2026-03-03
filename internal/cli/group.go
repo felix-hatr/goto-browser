@@ -244,7 +244,7 @@ URLs are listed in order with 1-based position numbers.`,
 
 		group, err := store.GetGroup(config.ProfileGroupsFile(profile), posName)
 		if err != nil {
-			return fmt.Errorf("group %q not found", args[0])
+			return fmt.Errorf("group %q not found (run: zebro group list)", args[0])
 		}
 
 		fmt.Printf("name:        %s\n", displayVar(group.Name, cfg.VariablePrefix, group.Params, cfg.VariableDisplay))
@@ -290,7 +290,7 @@ var groupDeleteCmd = &cobra.Command{
 		}
 		entry, ok := gf.Groups[posName]
 		if !ok {
-			return fmt.Errorf("group %q not found", args[0])
+			return fmt.Errorf("group %q not found (run: zebro group list)", args[0])
 		}
 		delete(gf.Groups, posName)
 		if err := store.SaveGroups(groupsPath, gf); err != nil {
@@ -344,7 +344,7 @@ By default entries are appended to the end. Use --at to insert at a specific
 		}
 		entry, ok := gf.Groups[posName]
 		if !ok {
-			return fmt.Errorf("group %q not found", name)
+			return fmt.Errorf("group %q not found (run: zebro group list)", name)
 		}
 
 		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
@@ -425,7 +425,7 @@ Removing by position (--at) removes the URL at that 1-based index.`,
 		}
 		entry, ok := gf.Groups[posName]
 		if !ok {
-			return fmt.Errorf("group %q not found", name)
+			return fmt.Errorf("group %q not found (run: zebro group list)", name)
 		}
 
 		if at > 0 {
@@ -518,7 +518,7 @@ var groupRenameCmd = &cobra.Command{
 		}
 
 		if _, ok := gf.Groups[oldPosName]; !ok {
-			return fmt.Errorf("group %q not found", args[0])
+			return fmt.Errorf("group %q not found (run: zebro group list)", args[0])
 		}
 		if _, ok := gf.Groups[newPosName]; ok {
 			return fmt.Errorf("group %q already exists", args[1])

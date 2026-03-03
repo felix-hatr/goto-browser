@@ -227,7 +227,7 @@ var linkViewCmd = &cobra.Command{
 
 		link, err := store.GetLink(config.ProfileLinksFile(profile), posKey)
 		if err != nil {
-			return fmt.Errorf("link %q not found", args[0])
+			return fmt.Errorf("link %q not found (run: zebro link list)", args[0])
 		}
 
 		fmt.Printf("key:         %s\n", displayVar(link.Key, cfg.VariablePrefix, link.Params, cfg.VariableDisplay))
@@ -267,7 +267,7 @@ var linkDeleteCmd = &cobra.Command{
 		}
 		entry, ok := lf.Links[posKey]
 		if !ok {
-			return fmt.Errorf("link %q not found", args[0])
+			return fmt.Errorf("link %q not found (run: zebro link list)", args[0])
 		}
 		link := store.Link{Key: posKey, URL: entry.URL, Description: entry.Description, Params: entry.Params}
 		delete(lf.Links, posKey)
@@ -329,7 +329,7 @@ var linkRenameCmd = &cobra.Command{
 		}
 
 		if _, ok := lf.Links[oldPosKey]; !ok {
-			return fmt.Errorf("link %q not found", args[0])
+			return fmt.Errorf("link %q not found (run: zebro link list)", args[0])
 		}
 		if _, ok := lf.Links[newPosKey]; ok {
 			return fmt.Errorf("link %q already exists", args[1])
