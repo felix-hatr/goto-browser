@@ -58,20 +58,6 @@ func SaveGroups(path string, gf *GroupFile) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// AddGroup adds or updates a group.
-func AddGroup(path string, group Group) error {
-	gf, err := LoadGroups(path)
-	if err != nil {
-		return err
-	}
-	gf.Groups[group.Name] = GroupEntry{
-		Description: group.Description,
-		Params:      group.Params,
-		URLs:        group.URLs,
-	}
-	return SaveGroups(path, gf)
-}
-
 // GetGroup retrieves a group by name.
 func GetGroup(path, name string) (*Group, error) {
 	gf, err := LoadGroups(path)
@@ -83,19 +69,6 @@ func GetGroup(path, name string) (*Group, error) {
 		return nil, fmt.Errorf("group %q not found", name)
 	}
 	return &Group{Name: name, Description: entry.Description, Params: entry.Params, URLs: entry.URLs}, nil
-}
-
-// RemoveGroup deletes a group by name.
-func RemoveGroup(path, name string) error {
-	gf, err := LoadGroups(path)
-	if err != nil {
-		return err
-	}
-	if _, ok := gf.Groups[name]; !ok {
-		return fmt.Errorf("group %q not found", name)
-	}
-	delete(gf.Groups, name)
-	return SaveGroups(path, gf)
 }
 
 // ListGroups returns all groups sorted by name.
