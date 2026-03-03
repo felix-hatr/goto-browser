@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/felix-hatr/goto-browser/internal/config"
@@ -37,12 +39,17 @@ var historyCmd = &cobra.Command{
 }
 
 func init() {
-	historyCmd.AddCommand(historyListCmd, historyStatsCmd, historyClearCmd, historyCompactCmd)
+	historyCmd.AddCommand(historyListCmd, historyStatsCmd, historyClearCmd, historyCompactCmd, historySearchCmd)
 	historyListCmd.Flags().SortFlags = false
 	historyListCmd.Flags().BoolP("link", "l", false, "Show only link history")
 	historyListCmd.Flags().BoolP("group", "g", false, "Show only group history")
 	historyListCmd.Flags().BoolP("url", "u", false, "Show only URL history")
 	historyListCmd.Flags().IntP("count", "n", 0, "Limit number of entries to show (default: all)")
+
+	historySearchCmd.Flags().SortFlags = false
+	historySearchCmd.Flags().BoolP("link", "l", false, "Search only link history")
+	historySearchCmd.Flags().BoolP("group", "g", false, "Search only group history")
+	historySearchCmd.Flags().BoolP("url", "u", false, "Search only URL history")
 }
 
 var historyListCmd = &cobra.Command{
@@ -59,31 +66,7 @@ var historyListCmd = &cobra.Command{
 		groupOnly, _ := cmd.Flags().GetBool("group")
 		urlOnly, _ := cmd.Flags().GetBool("url")
 
-		flagCount := 0
-		if linkOnly {
-			flagCount++
-		}
-		if groupOnly {
-			flagCount++
-		}
-		if urlOnly {
-			flagCount++
-		}
-		if flagCount > 1 {
-			return fmt.Errorf("-l/--link, -g/--group, and -u/--url are mutually exclusive")
-		}
-
-		var entries []store.HistoryEntry
-		switch {
-		case linkOnly:
-			entries, err = store.LoadHistory(config.ProfileHistoryFile(profile, "link"))
-		case groupOnly:
-			entries, err = store.LoadHistory(config.ProfileHistoryFile(profile, "group"))
-		case urlOnly:
-			entries, err = store.LoadHistory(config.ProfileHistoryFile(profile, "url"))
-		default:
-			entries, err = allHistoryEntries(profile)
-		}
+		entries, err := loadHistoryByFlags(profile, linkOnly, groupOnly, urlOnly)
 		if err != nil {
 			return err
 		}
@@ -119,6 +102,37 @@ var historyListCmd = &cobra.Command{
 		}
 		return w.Flush()
 	},
+}
+
+// loadHistoryByFlags loads history entries filtered by the given type flags.
+// If no flags are set, all entries are returned (sorted oldest-first).
+func loadHistoryByFlags(profile string, linkOnly, groupOnly, urlOnly bool) ([]store.HistoryEntry, error) {
+	var types []string
+	if linkOnly {
+		types = append(types, "link")
+	}
+	if groupOnly {
+		types = append(types, "group")
+	}
+	if urlOnly {
+		types = append(types, "url")
+	}
+	if len(types) == 0 {
+		return allHistoryEntries(profile)
+	}
+
+	var all []store.HistoryEntry
+	for _, typ := range types {
+		entries, err := store.LoadHistory(config.ProfileHistoryFile(profile, typ))
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, entries...)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Time.Before(all[j].Time)
+	})
+	return all, nil
 }
 
 var historyStatsCmd = &cobra.Command{
@@ -284,6 +298,73 @@ Always applies history_size limit if configured.`,
 		} else {
 			fmt.Printf("history already compact (%d entries)\n", totalAfter)
 		}
+		return nil
+	},
+}
+
+var historySearchCmd = &cobra.Command{
+	Use:   "search <keyword>",
+	Short: "Search history entries",
+	Long: `Search history entries by target or URL.
+
+Use -l/-g/-u to limit search to specific history types (combinable).
+Results are shown most-recent-first in the same format as 'history list'.`,
+	Example: `  $ zebro history search github
+  $ zebro history search -l jira
+  $ zebro history search -l -g morning`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		keyword := args[0]
+		profile, _, err := currentProfile()
+		if err != nil {
+			return err
+		}
+
+		linkOnly, _ := cmd.Flags().GetBool("link")
+		groupOnly, _ := cmd.Flags().GetBool("group")
+		urlOnly, _ := cmd.Flags().GetBool("url")
+
+		entries, err := loadHistoryByFlags(profile, linkOnly, groupOnly, urlOnly)
+		if err != nil {
+			return err
+		}
+
+		kLower := strings.ToLower(keyword)
+		var matched []store.HistoryEntry
+		for _, e := range entries {
+			urlSummary := e.DisplayURLs()
+			if strings.Contains(strings.ToLower(e.Target), kLower) ||
+				strings.Contains(strings.ToLower(urlSummary), kLower) {
+				matched = append(matched, e)
+			}
+		}
+
+		if len(matched) == 0 {
+			fmt.Printf("no history matching %q\n", keyword)
+			return nil
+		}
+
+		// Show most recent first
+		reversed := make([]store.HistoryEntry, len(matched))
+		for i, e := range matched {
+			reversed[len(matched)-1-i] = e
+		}
+		matched = reversed
+
+		var buf bytes.Buffer
+		w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "TIME\tTYPE\tTARGET\tURLs")
+		fmt.Fprintln(w, "----\t----\t------\t----")
+		for _, e := range matched {
+			timeStr := e.Time.Local().Format("2006-01-02 15:04")
+			urlSummary := e.DisplayURLs()
+			if len(urlSummary) > 60 {
+				urlSummary = urlSummary[:57] + "..."
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", timeStr, e.Type, e.Target, urlSummary)
+		}
+		w.Flush()
+		fmt.Print(highlightKeyword(buf.String(), keyword))
 		return nil
 	},
 }

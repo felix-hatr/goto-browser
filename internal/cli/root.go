@@ -67,6 +67,13 @@ func init() {
 	})
 
 	rootCmd.PersistentFlags().StringVarP(&profileFlag, "profile", "p", "", "Profile to use (overrides active profile)")
+	rootCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		profiles, err := config.ListProfiles()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return profiles, cobra.ShellCompDirectiveNoFileComp
+	})
 	rootCmd.Version = Version
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 	rootCmd.SetHelpTemplate(zebroHelpTemplate)
@@ -76,6 +83,7 @@ func init() {
 		groupCmd,
 		profileCmd,
 		openCmd,
+		searchCmd,
 		configCmd,
 		doctorCmd,
 		historyCmd,
@@ -89,10 +97,7 @@ func init() {
 			return
 		}
 
-		p := "@"
-		if cfg, err := config.Load(); err == nil {
-			p = cfg.VariablePrefix
-		}
+		p := loadVariablePrefix()
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
@@ -104,6 +109,7 @@ func init() {
 
 		fmt.Fprintln(w, "COMMANDS")
 		fmt.Fprintln(w, "  open:\tOpen a link or group in the browser")
+		fmt.Fprintln(w, "  search:\tSearch links, groups, and history")
 		fmt.Fprintln(w, "")
 
 		fmt.Fprintln(w, "RESOURCE COMMANDS")
@@ -147,6 +153,14 @@ func init() {
 
 		w.Flush()
 	})
+}
+
+// loadVariablePrefix returns the configured variable prefix, defaulting to "@" on error.
+func loadVariablePrefix() string {
+	if cfg, err := config.Load(); err == nil {
+		return cfg.VariablePrefix
+	}
+	return "@"
 }
 
 // displayVar renders a stored key/URL for output based on the configured display mode.
@@ -198,6 +212,36 @@ func recentSet(historyPath string) ([]string, map[string]bool) {
 		set[t] = true
 	}
 	return recent, set
+}
+
+// isTTY returns true if stdout is a terminal.
+func isTTY() bool {
+	info, err := os.Stdout.Stat()
+	return err == nil && (info.Mode()&os.ModeCharDevice) != 0
+}
+
+// highlightKeyword wraps all case-insensitive occurrences of keyword in s with ANSI bold yellow.
+// Returns s unchanged if not a TTY or keyword is empty.
+func highlightKeyword(s, keyword string) string {
+	if !isTTY() || keyword == "" {
+		return s
+	}
+	kLower := strings.ToLower(keyword)
+	var out strings.Builder
+	remaining := s
+	for {
+		idx := strings.Index(strings.ToLower(remaining), kLower)
+		if idx < 0 {
+			out.WriteString(remaining)
+			break
+		}
+		out.WriteString(remaining[:idx])
+		out.WriteString("\033[1;33m")
+		out.WriteString(remaining[idx : idx+len(keyword)])
+		out.WriteString("\033[0m")
+		remaining = remaining[idx+len(keyword):]
+	}
+	return out.String()
 }
 
 // backupFile copies src to src+".bak". If src does not exist, it is a no-op.

@@ -50,6 +50,12 @@ and dynamic values (link keys, group names, profile names, config keys).`,
 
 func init() {
 	completionCmd.Flags().StringVarP(&completionShellFlag, "shell", "s", "", "Shell type: bash, zsh, fish (default: auto-detect from $SHELL)")
+	completionCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return []string{"bash", "zsh", "fish"}, cobra.ShellCompDirectiveNoFileComp
+	}
 }
 
 // detectShell returns the shell name from $SHELL, defaulting to "bash".

@@ -34,6 +34,13 @@ func NormalizeVars(s, prefix string) string {
 	})
 }
 
+// NormalizeAndPositionalize combines NormalizeVars and NormalizeToPositional in one call.
+// It normalizes prefix-based variables in s and converts named tokens to positional form.
+func NormalizeAndPositionalize(s, prefix string) (posKey string, params []string) {
+	norm := NormalizeVars(s, prefix)
+	return NormalizeToPositional(norm)
+}
+
 // DenormalizeVars replaces VarToken occurrences in s with the configured prefix.
 func DenormalizeVars(s, prefix string) string {
 	return strings.ReplaceAll(s, VarToken, prefix)

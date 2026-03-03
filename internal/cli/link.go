@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -18,7 +19,9 @@ var linkCmd = &cobra.Command{
 }
 
 func init() {
-	linkCmd.AddCommand(linkListCmd, linkViewCmd, linkCreateCmd, linkDeleteCmd, linkClearCmd, linkRenameCmd)
+	linkCmd.AddCommand(linkListCmd, linkViewCmd, linkCreateCmd, linkDeleteCmd, linkClearCmd, linkRenameCmd, linkSearchCmd, linkExportCmd, linkImportCmd)
+	linkExportCmd.Flags().StringP("output", "o", "", "Output file (default: stdout)")
+	linkImportCmd.Flags().Bool("replace", false, "Replace existing data instead of merging")
 	linkCreateCmd.Flags().StringP("description", "d", "", "Link description")
 
 	defaultHelp := linkCmd.HelpFunc()
@@ -27,10 +30,7 @@ func init() {
 			defaultHelp(cmd, args)
 			return
 		}
-		p := "@"
-		if cfg, err := config.Load(); err == nil {
-			p = cfg.VariablePrefix
-		}
+		p := loadVariablePrefix()
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "Manage links — URL patterns with optional variable placeholders.")
 		fmt.Fprintln(w, "")
@@ -40,10 +40,13 @@ func init() {
 		fmt.Fprintln(w, "COMMANDS")
 		fmt.Fprintln(w, "  list:\tList all links")
 		fmt.Fprintln(w, "  view:\tShow link details")
+		fmt.Fprintln(w, "  search:\tSearch links by keyword")
 		fmt.Fprintln(w, "  create:\tAdd or update a link")
 		fmt.Fprintln(w, "  rename:\tRename a link key")
 		fmt.Fprintln(w, "  delete:\tRemove a link")
 		fmt.Fprintln(w, "  clear:\tRemove all links")
+		fmt.Fprintln(w, "  export:\tExport links to a YAML file")
+		fmt.Fprintln(w, "  import:\tImport links from a YAML file")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "FLAGS")
 		fmt.Fprintln(w, "  -h, --help\tShow help for command")
@@ -113,7 +116,7 @@ var linkCreateCmd = &cobra.Command{
 		}
 
 		// Step 3: Convert to positional storage
-		posKey, params := store.NormalizeToPositional(normKey)
+		posKey, params := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 		nameToPos := store.NameToPos(params)
 		posURL, _ := store.ApplyPositional(normURL, nameToPos)
 
@@ -226,12 +229,11 @@ var linkViewCmd = &cobra.Command{
 			return err
 		}
 
-		normKey := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posKey, _ := store.NormalizeToPositional(normKey)
+		posKey, _ := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 
 		link, err := store.GetLink(config.ProfileLinksFile(profile), posKey)
 		if err != nil {
-			return fmt.Errorf("link %q not found", args[0])
+			return fmt.Errorf("link %q not found (run: zebro link list)", args[0])
 		}
 
 		fmt.Printf("key:         %s\n", displayVar(link.Key, cfg.VariablePrefix, link.Params, cfg.VariableDisplay))
@@ -262,8 +264,7 @@ var linkDeleteCmd = &cobra.Command{
 			return err
 		}
 
-		normKey := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		posKey, _ := store.NormalizeToPositional(normKey)
+		posKey, _ := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
 
 		linksPath := config.ProfileLinksFile(profile)
 		lf, err := store.LoadLinks(linksPath)
@@ -272,7 +273,7 @@ var linkDeleteCmd = &cobra.Command{
 		}
 		entry, ok := lf.Links[posKey]
 		if !ok {
-			return fmt.Errorf("link %q not found", args[0])
+			return fmt.Errorf("link %q not found (run: zebro link list)", args[0])
 		}
 		link := store.Link{Key: posKey, URL: entry.URL, Description: entry.Description, Params: entry.Params}
 		delete(lf.Links, posKey)
@@ -320,11 +321,8 @@ var linkRenameCmd = &cobra.Command{
 			return err
 		}
 
-		normOld := store.NormalizeVars(args[0], cfg.VariablePrefix)
-		oldPosKey, oldParams := store.NormalizeToPositional(normOld)
-
-		normNew := store.NormalizeVars(args[1], cfg.VariablePrefix)
-		newPosKey, newParams := store.NormalizeToPositional(normNew)
+		oldPosKey, oldParams := store.NormalizeAndPositionalize(args[0], cfg.VariablePrefix)
+		newPosKey, newParams := store.NormalizeAndPositionalize(args[1], cfg.VariablePrefix)
 
 		if len(oldParams) != len(newParams) {
 			return fmt.Errorf("variable count mismatch: old key has %d variable(s), new key has %d", len(oldParams), len(newParams))
@@ -337,7 +335,7 @@ var linkRenameCmd = &cobra.Command{
 		}
 
 		if _, ok := lf.Links[oldPosKey]; !ok {
-			return fmt.Errorf("link %q not found", args[0])
+			return fmt.Errorf("link %q not found (run: zebro link list)", args[0])
 		}
 		if _, ok := lf.Links[newPosKey]; ok {
 			return fmt.Errorf("link %q already exists", args[1])
@@ -366,4 +364,164 @@ func completeLinkKeys(cmd *cobra.Command, args []string, toComplete string) ([]s
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return completeLinkKeysAll(cmd, args, toComplete)
+}
+
+var linkSearchCmd = &cobra.Command{
+	Use:   "search <keyword>",
+	Short: "Search links by keyword",
+	Long:  "Search links by key, URL, or description (case-insensitive substring match).",
+	Example: `  $ zebro link search github
+  $ zebro link search jira`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: cobra.NoFileCompletions,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		keyword := args[0]
+		profile, cfg, err := currentProfile()
+		if err != nil {
+			return err
+		}
+
+		links, err := store.ListLinks(config.ProfileLinksFile(profile))
+		if err != nil {
+			return err
+		}
+
+		kLower := strings.ToLower(keyword)
+		var matched []store.Link
+		for _, l := range links {
+			key := displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay)
+			url := displayVar(l.URL, cfg.VariablePrefix, l.Params, cfg.VariableDisplay)
+			if strings.Contains(strings.ToLower(key), kLower) ||
+				strings.Contains(strings.ToLower(url), kLower) ||
+				strings.Contains(strings.ToLower(l.Description), kLower) {
+				matched = append(matched, l)
+			}
+		}
+
+		if len(matched) == 0 {
+			fmt.Printf("no links matching %q\n", keyword)
+			return nil
+		}
+
+		var buf bytes.Buffer
+		w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
+		if cfg.VariableDisplay == "positional" {
+			fmt.Fprintln(w, "KEY\tURL\tDESCRIPTION\tPARAMS")
+			fmt.Fprintln(w, "---\t---\t-----------\t------")
+			for _, l := range matched {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+					displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay),
+					displayVar(l.URL, cfg.VariablePrefix, l.Params, cfg.VariableDisplay),
+					l.Description,
+					formatParams(cfg.VariablePrefix, l.Params))
+			}
+		} else {
+			fmt.Fprintln(w, "KEY\tURL\tDESCRIPTION")
+			fmt.Fprintln(w, "---\t---\t-----------")
+			for _, l := range matched {
+				fmt.Fprintf(w, "%s\t%s\t%s\n",
+					displayVar(l.Key, cfg.VariablePrefix, l.Params, cfg.VariableDisplay),
+					displayVar(l.URL, cfg.VariablePrefix, l.Params, cfg.VariableDisplay),
+					l.Description)
+			}
+		}
+		w.Flush()
+		fmt.Print(highlightKeyword(buf.String(), keyword))
+		return nil
+	},
+}
+
+var linkExportCmd = &cobra.Command{
+	Use:   "export [-o <file>]",
+	Short: "Export links to a YAML file",
+	Long:  "Export all links in the current profile to a YAML file (default: stdout).",
+	Example: `  $ zebro link export
+  $ zebro link export -o /tmp/links.yaml`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		profile, _, err := currentProfile()
+		if err != nil {
+			return err
+		}
+		lf, err := store.LoadLinks(config.ProfileLinksFile(profile))
+		if err != nil {
+			return err
+		}
+		ef := &store.ExportFile{
+			Version: "1",
+			Links:   lf.Links,
+		}
+		outPath, _ := cmd.Flags().GetString("output")
+		if outPath == "" {
+			data, err := store.MarshalExportFile(ef)
+			if err != nil {
+				return err
+			}
+			fmt.Print(string(data))
+			return nil
+		}
+		if err := store.SaveExportFile(outPath, ef); err != nil {
+			return err
+		}
+		fmt.Printf("exported %d link(s) to %s\n", len(lf.Links), outPath)
+		return nil
+	},
+}
+
+var linkImportCmd = &cobra.Command{
+	Use:   "import <file>",
+	Short: "Import links from a YAML file",
+	Long: `Import links from an export YAML file.
+
+By default (merge mode): new links are added, existing keys are skipped.
+Use --replace to overwrite all existing links with the imported data.`,
+	Example: `  $ zebro link import /tmp/links.yaml
+  $ zebro link import /tmp/links.yaml --replace`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: cobra.NoFileCompletions,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		profile, _, err := currentProfile()
+		if err != nil {
+			return err
+		}
+		ef, err := store.LoadExportFile(args[0])
+		if err != nil {
+			return err
+		}
+		if len(ef.Links) == 0 {
+			fmt.Println("no links found in export file")
+			return nil
+		}
+
+		replace, _ := cmd.Flags().GetBool("replace")
+		linksPath := config.ProfileLinksFile(profile)
+		lf, err := store.LoadLinks(linksPath)
+		if err != nil {
+			return err
+		}
+
+		if replace {
+			lf.Links = ef.Links
+			if err := store.SaveLinks(linksPath, lf); err != nil {
+				return err
+			}
+			fmt.Printf("replaced links: imported %d\n", len(ef.Links))
+			return nil
+		}
+
+		imported, skipped := 0, 0
+		for key, entry := range ef.Links {
+			if _, exists := lf.Links[key]; exists {
+				skipped++
+				continue
+			}
+			lf.Links[key] = entry
+			imported++
+		}
+		if err := store.SaveLinks(linksPath, lf); err != nil {
+			return err
+		}
+		fmt.Printf("imported %d, skipped %d\n", imported, skipped)
+		return nil
+	},
 }

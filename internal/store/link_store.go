@@ -58,20 +58,6 @@ func SaveLinks(path string, lf *LinkFile) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// AddLink adds or updates a link.
-func AddLink(path string, link Link) error {
-	lf, err := LoadLinks(path)
-	if err != nil {
-		return err
-	}
-	lf.Links[link.Key] = LinkEntry{
-		URL:         link.URL,
-		Description: link.Description,
-		Params:      link.Params,
-	}
-	return SaveLinks(path, lf)
-}
-
 // GetLink retrieves a link by key.
 func GetLink(path, key string) (*Link, error) {
 	lf, err := LoadLinks(path)
@@ -83,19 +69,6 @@ func GetLink(path, key string) (*Link, error) {
 		return nil, fmt.Errorf("link %q not found", key)
 	}
 	return &Link{Key: key, URL: entry.URL, Description: entry.Description, Params: entry.Params}, nil
-}
-
-// RemoveLink deletes a link by key.
-func RemoveLink(path, key string) error {
-	lf, err := LoadLinks(path)
-	if err != nil {
-		return err
-	}
-	if _, ok := lf.Links[key]; !ok {
-		return fmt.Errorf("link %q not found", key)
-	}
-	delete(lf.Links, key)
-	return SaveLinks(path, lf)
 }
 
 // ListLinks returns all links sorted by key.
