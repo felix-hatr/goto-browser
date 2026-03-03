@@ -356,53 +356,37 @@ func (c *ProfileConfig) Get(key string) (string, error) {
 // Set updates a profile config value by key.
 func (c *ProfileConfig) Set(key, value string) error {
 	switch key {
+	case "description", "browser", "variable_prefix", "variable_display",
+		"open_mode", "open_default", "profile_delete_mode", "profile_view_mode",
+		"history_size", "history_dedup":
+		if err := validateConfigValue(key, value); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
+	}
+	switch key {
 	case "description":
 		c.Description = value
 	case "browser":
 		c.Browser = value
 	case "variable_prefix":
-		if err := validateVariablePrefix(value); err != nil {
-			return err
-		}
 		c.VariablePrefix = value
 	case "variable_display":
-		if value != "named" && value != "positional" {
-			return fmt.Errorf("variable_display must be 'named' or 'positional'")
-		}
 		c.VariableDisplay = value
 	case "open_mode":
-		if value != "new_tab" && value != "new_window" {
-			return fmt.Errorf("open_mode must be 'new_tab' or 'new_window'")
-		}
 		c.OpenMode = value
 	case "open_default":
-		if value != "link" && value != "group" && value != "url" {
-			return fmt.Errorf("open_default must be 'link', 'group', or 'url'")
-		}
 		c.OpenDefault = value
 	case "profile_delete_mode":
-		if value != "backup" && value != "permanent" {
-			return fmt.Errorf("profile_delete_mode must be 'backup' or 'permanent'")
-		}
 		c.ProfileDeleteMode = value
 	case "profile_view_mode":
-		if value != "summary" && value != "detail" {
-			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
-		}
 		c.ProfileViewMode = value
 	case "history_size":
-		n, err := parseHistorySize(value)
-		if err != nil {
-			return err
-		}
+		n, _ := parseHistorySize(value)
 		c.HistorySize = n
 	case "history_dedup":
-		if value != "none" && value != "consecutive" && value != "all" {
-			return fmt.Errorf("history_dedup must be 'none', 'consecutive', or 'all'")
-		}
 		c.HistoryDedup = value
-	default:
-		return fmt.Errorf("unknown profile config key: %q (valid keys: description, browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
 	}
 	return nil
 }
@@ -439,51 +423,75 @@ func (c *GlobalConfig) Get(key string) (string, error) {
 // Set updates a config value by key.
 func (c *GlobalConfig) Set(key, value string) error {
 	switch key {
+	case "browser", "variable_prefix", "variable_display",
+		"open_mode", "open_default", "profile_delete_mode", "profile_view_mode",
+		"history_size", "history_dedup":
+		if err := validateConfigValue(key, value); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
+	}
+	switch key {
 	case "browser":
 		c.Browser = value
 	case "variable_prefix":
-		if err := validateVariablePrefix(value); err != nil {
-			return err
-		}
 		c.VariablePrefix = value
+	case "variable_display":
+		c.VariableDisplay = value
+	case "open_mode":
+		c.OpenMode = value
+	case "open_default":
+		c.OpenDefault = value
+	case "profile_delete_mode":
+		c.ProfileDeleteMode = value
+	case "profile_view_mode":
+		c.ProfileViewMode = value
+	case "history_size":
+		n, _ := parseHistorySize(value)
+		c.HistorySize = n
+	case "history_dedup":
+		c.HistoryDedup = value
+	}
+	return nil
+}
+
+// validateConfigValue validates a config key/value pair.
+// Returns an error if the value is invalid for the given key.
+// Returns nil for unknown keys (caller is responsible for unknown key handling).
+func validateConfigValue(key, value string) error {
+	switch key {
+	case "variable_prefix":
+		return validateVariablePrefix(value)
 	case "variable_display":
 		if value != "named" && value != "positional" {
 			return fmt.Errorf("variable_display must be 'named' or 'positional'")
 		}
-		c.VariableDisplay = value
 	case "open_mode":
 		if value != "new_tab" && value != "new_window" {
 			return fmt.Errorf("open_mode must be 'new_tab' or 'new_window'")
 		}
-		c.OpenMode = value
 	case "open_default":
 		if value != "link" && value != "group" && value != "url" {
 			return fmt.Errorf("open_default must be 'link', 'group', or 'url'")
 		}
-		c.OpenDefault = value
 	case "profile_delete_mode":
 		if value != "backup" && value != "permanent" {
 			return fmt.Errorf("profile_delete_mode must be 'backup' or 'permanent'")
 		}
-		c.ProfileDeleteMode = value
 	case "profile_view_mode":
 		if value != "summary" && value != "detail" {
 			return fmt.Errorf("profile_view_mode must be 'summary' or 'detail'")
 		}
-		c.ProfileViewMode = value
 	case "history_size":
-		n, err := parseHistorySize(value)
-		if err != nil {
-			return err
-		}
-		c.HistorySize = n
+		_, err := parseHistorySize(value)
+		return err
 	case "history_dedup":
 		if value != "none" && value != "consecutive" && value != "all" {
 			return fmt.Errorf("history_dedup must be 'none', 'consecutive', or 'all'")
 		}
-		c.HistoryDedup = value
-	default:
-		return fmt.Errorf("unknown config key: %q (valid keys: browser, variable_prefix, variable_display, open_mode, open_default, profile_delete_mode, profile_view_mode, history_size, history_dedup)", key)
+	case "browser", "description":
+		// no validation, accept any string
 	}
 	return nil
 }
