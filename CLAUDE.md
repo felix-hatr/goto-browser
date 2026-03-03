@@ -33,19 +33,21 @@ Always use `-buildvcs=false` — avoids VCS metadata embedding issues in this en
 cmd/zebro/         — entry point (sets version via ldflags)
 internal/
   cli/             — cobra commands (one file per resource)
-    root.go        — rootCmd, global flags, shared helpers
-    link.go        — zebro link {create,list,view,rename,delete,clear}
-    group.go       — zebro group {create,list,view,add,remove,rename,delete,clear}
-    profile.go     — zebro profile {create,list,view,use,rename,delete,backup,restore}
-    open.go        — zebro open
-    history.go     — zebro history {list,stats,compact,clear}
+    root.go        — rootCmd, global flags, isTTY/highlightKeyword helpers
+    link.go        — zebro link {create,list,view,rename,delete,clear,search,export,import}
+    group.go       — zebro group {create,list,view,add,remove,rename,delete,clear,search,export,import}
+    profile.go     — zebro profile {create,list,view,use,rename,delete,backup,export,import}
+    open.go        — zebro open (multi-arg, --no-history)
+    history.go     — zebro history {list,stats,compact,clear,search}
+    search.go      — zebro search (unified search)
     config.go      — zebro config {list,get,set}
     doctor.go      — zebro doctor
     backup.go      — backup helpers
     completion.go  — zebro completion
-  config/          — config load/save, paths, profile I/O
+  config/          — config load/save, paths, profile I/O; validateConfigValue shared helper
   store/           — YAML read/write for links/groups; JSONL for history; variable token logic
-  resolver/        — URL resolution with scoring
+    export_file.go — ExportFile type for import/export
+  resolver/        — URL resolution with scoring; ResolveGroupEntries method
   browser/         — browser open via embedded AppleScript (osascript)
 ```
 
@@ -70,9 +72,22 @@ Variables are stored internally as `<vp>name` tokens (prefix `<vp>` is a literal
 ### Group Storage
 
 Groups store **URL templates** (not link keys). At `group create/add` time, link keys are resolved to URL templates and stored. This means:
-- `resolveGroupEntries()` in `group.go` handles the link→URL conversion
+- `r.ResolveGroupEntries()` in `resolver/resolver.go` handles the link→URL conversion (moved from group.go in v1.2.0)
 - Opening a group directly resolves the stored URL templates
 - Doctor checks for empty URL entries only (no link key validation needed)
+
+### ExportFile Format
+
+Import/export uses a shared YAML format (`store.ExportFile`):
+```yaml
+version: "1"
+links:        # map[key]LinkEntry (omitempty)
+groups:       # map[name]GroupEntry (omitempty)
+config:       # map[string]string (omitempty)
+```
+- Variable tokens are stored in internal `<vp>N` form (prefix-independent)
+- `profile export` includes all three sections; `link/group export` includes only their section
+- Import default: merge (skip conflicts); `--replace` overwrites all existing data
 
 ### History Storage
 
@@ -115,16 +130,23 @@ Use `config.LoadGlobal()` when you need raw global values (no profile overlay).
 - `SortFlags = false` on commands where flag order matters (open, history list)
 - Tab completion for all argument positions; `open -l/-g` completion uses MRU history
 - `--dry-run` on `open` prints URLs instead of opening (does not record history)
+- `--no-history` on `open` opens normally but suppresses history recording
+- Search commands: write to `bytes.Buffer` → tabwriter flush → `highlightKeyword()` → print
+  (so ANSI codes don't corrupt column alignment)
 
-## Current State (v1.1.0, branch: feat/v1.1.0)
+## Current State (v1.2.0, branch: feat/v1.2.0)
 
 All features implemented and committed:
 - link/group CRUD with variable patterns + `rename`
 - group URLs stored as URL templates (not link keys); `--url` flag for direct URLs
-- open with `-l/-g/-u` flags, `open_default` config (link/group/url), `--dry-run`
+- open with repeatable `-l/-g/-u` flags (ordered), positional multi-args, `--dry-run`, `--no-history`
+- `link search`, `group search`, `history search`, `zebro search` (unified) — case-insensitive, keyword highlight
+- `link export/import`, `group export/import`, `profile export/import` with merge/replace modes
 - history: JSONL append-only, type-split files, MRU completion, `history_size`/`history_dedup` config
+- `history list` supports combining `-l/-g/-u` flags (no longer mutually exclusive)
 - profile CRUD with backup/restore
-- config get/set with profile/global scope
+- config get/set with profile/global scope; `validateConfigValue` shared helper
+- `resolver.ResolveGroupEntries` (moved from cli/group.go)
 - doctor for diagnostics
 - shell completion (bash/zsh/fish)
 

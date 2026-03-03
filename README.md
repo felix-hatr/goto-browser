@@ -14,6 +14,9 @@ zebro open github/octocat/hello-world   # → https://github.com/octocat/hello-w
 
 - **Variable URL patterns** — `github/@user/@repo` matches `github/octocat/hello-world` positionally
 - **Groups** — open multiple URLs at once in a new browser window
+- **Multi-open** — `-l/-g/-u` flags are repeatable; open links, groups, and URLs in one command
+- **Search** — `zebro search`, `zebro link search`, `zebro group search`, `zebro history search`
+- **Import / Export** — portable YAML snapshots for links, groups, and full profiles
 - **Profiles** — isolated link sets for work, personal, or per-project
 - **History** — records every open; tab completion surfaces recently used items first
 - **Smart resolver** — most specific match wins (literal segments beat variable segments)
@@ -59,16 +62,21 @@ zebro open -g morning                # opens all URLs in a new window
 ### `zebro open`
 
 ```
-zebro open <key>              open a link (default)
-zebro open -l <key>           explicitly open a link
-zebro open -g <name>          open a group
-zebro open -u <url>           open a direct URL
-zebro open ... -n             open in a new window
-zebro open ... -t             open in a new tab
-zebro open ... -b <browser>   use a specific browser
-zebro open ... --dry-run      print URL(s) without opening
+zebro open <key>                        open a link (default)
+zebro open -l <key>                     explicitly open a link
+zebro open -g <name>                    open a group
+zebro open -u <url>                     open a direct URL
+zebro open -l github -g morning         open multiple items in order (flags are repeatable)
+zebro open -l github -l jira/PROJ-100  open multiple links
+zebro open ... -n                       open in a new window
+zebro open ... -t                       open in a new tab
+zebro open ... -b <browser>             use a specific browser
+zebro open ... --dry-run                print URL(s) without opening
+zebro open ... --no-history             open without recording to history
 ```
 
+Flags `-l`, `-g`, and `-u` are **repeatable** and processed in command-line order.
+Positional arguments follow any flags and are treated per `open_default` config.
 Tab completion for `-l` and `-g` shows recently opened items first (MRU order).
 
 ### `zebro link`
@@ -77,9 +85,12 @@ Tab completion for `-l` and `-g` shows recently opened items first (MRU order).
 zebro link create <key> <url> [-d <description>]    add or update a link
 zebro link list                                      list all links
 zebro link view <key>                                show link details
+zebro link search <keyword>                          search links by key, URL, or description
 zebro link rename <old-key> <new-key>                rename a link key
 zebro link delete <key>                              remove a link
 zebro link clear                                     remove all links
+zebro link export [-o <file>]                        export links to YAML (stdout if no -o)
+zebro link import <file> [--replace]                 import links from YAML
 ```
 
 ### `zebro group`
@@ -88,11 +99,14 @@ zebro link clear                                     remove all links
 zebro group create <name> [-l <key>...] [-u <url>...] [-d <desc>]    create a group
 zebro group list                                                       list all groups
 zebro group view <name>                                                show group details
+zebro group search <keyword>                                           search groups by name or description
 zebro group add <name> [-l <key>...] [-u <url>...] [--at <pos>]       add to a group
 zebro group remove <name> [-l <key>...] [--at <pos>]                  remove from a group
 zebro group rename <old-name> <new-name>                               rename a group
 zebro group delete <name>                                              remove a group
 zebro group clear                                                      remove all groups
+zebro group export [-o <file>]                                         export groups to YAML
+zebro group import <file> [--replace]                                  import groups from YAML
 ```
 
 Use `-l` to reference a registered link key, or `-u` to add a direct URL. Both support group-level variable substitution.
@@ -100,25 +114,28 @@ Use `-l` to reference a registered link key, or `-u` to add a direct URL. Both s
 ### `zebro history`
 
 ```
-zebro history list [-l|-g|-u] [-n <count>]    list history (most recent first)
-zebro history stats                            open frequency and top targets
-zebro history clear                            clear all history
-zebro history compact                          deduplicate and apply size limit
+zebro history list [-l] [-g] [-u] [-n <count>]    list history (most recent first; flags combinable)
+zebro history search <keyword> [-l] [-g] [-u]     search history by target or URL
+zebro history stats                               open frequency and top targets
+zebro history clear                               clear all history
+zebro history compact                             deduplicate and apply size limit
 ```
 
-History is recorded for every successful `zebro open` (skipped on `--dry-run`). Tab completion uses it to surface recently used items first.
+History is recorded for every successful `zebro open` (skipped on `--dry-run` or `--no-history`). Tab completion uses it to surface recently used items first. `-l/-g/-u` flags can be combined to filter multiple types.
 
 ### `zebro profile`
 
 Profiles are isolated sets of links and groups — useful for work vs. personal, or per-project setups.
 
 ```
-zebro profile create <name> [-d <desc>]    create a profile
-zebro profile list                         list all profiles
-zebro profile view [name]                  show profile details
-zebro profile use <name>                   switch active profile
-zebro profile rename <old> <new>           rename a profile
-zebro profile delete <name>                delete (follows profile_delete_mode config)
+zebro profile create <name> [-d <desc>]       create a profile
+zebro profile list                             list all profiles
+zebro profile view [name]                      show profile details
+zebro profile use <name>                       switch active profile
+zebro profile rename <old> <new>               rename a profile
+zebro profile delete <name>                    delete (follows profile_delete_mode config)
+zebro profile export [name] [-o <file>]        export links + groups + config to YAML
+zebro profile import <file> [--as <name>] [--force]   import from YAML
 ```
 
 **Backups:**
@@ -130,6 +147,23 @@ zebro profile backup restore <name> [id]      restore (latest if no id given)
 zebro profile backup view <name> <id>         inspect a snapshot
 zebro profile backup delete <name> <id>       delete a snapshot
 zebro profile backup clear <name>             delete all snapshots
+```
+
+### `zebro search`
+
+Search across all resources at once:
+
+```
+zebro search <keyword>    search links, groups, and history in one command
+```
+
+Results are grouped into **LINKS / GROUPS / HISTORY** sections (empty sections omitted).
+Keywords are highlighted in terminal output. Also available per resource:
+
+```
+zebro link search <keyword>
+zebro group search <keyword>
+zebro history search <keyword>
 ```
 
 ### `zebro config`
