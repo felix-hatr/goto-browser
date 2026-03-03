@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/felix-hatr/goto-browser/internal/config"
@@ -112,7 +111,7 @@ var historyListCmd = &cobra.Command{
 		fmt.Fprintln(w, "----\t----\t------\t----")
 		for _, e := range entries {
 			timeStr := e.Time.Local().Format("2006-01-02 15:04")
-			urlSummary := strings.Join(e.URLs, ", ")
+			urlSummary := e.DisplayURLs()
 			if len(urlSummary) > 60 {
 				urlSummary = urlSummary[:57] + "..."
 			}

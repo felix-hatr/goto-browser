@@ -48,6 +48,9 @@ type ProfileConfig struct {
 
 // applyConfigDefaults fills in zero-value fields with their defaults.
 func applyConfigDefaults(cfg *GlobalConfig) {
+	if cfg.Browser == "" {
+		cfg.Browser = "chrome"
+	}
 	if cfg.VariablePrefix == "" {
 		cfg.VariablePrefix = defaultVariablePrefix
 	}
@@ -68,6 +71,9 @@ func applyConfigDefaults(cfg *GlobalConfig) {
 	}
 	if cfg.HistorySize == 0 {
 		cfg.HistorySize = 10000
+	}
+	if cfg.HistoryDedup == "" {
+		cfg.HistoryDedup = "consecutive"
 	}
 }
 

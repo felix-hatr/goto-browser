@@ -29,7 +29,7 @@ var sharedConfigKeys = []configKeyDef{
 	{"profile_view_mode", "Default view mode for profile view {summary|detail} (default: summary)", []string{"summary", "detail"}, false},
 	{"description", "Profile description (profile only)", nil, true},
 	{"history_size", "Max history entries to keep (default: 10000, -1=unlimited)", nil, false},
-	{"history_dedup", "Dedup strategy {none|consecutive|all} (default: none)", []string{"none", "consecutive", "all"}, false},
+	{"history_dedup", "Dedup strategy {none|consecutive|all} (default: consecutive)", []string{"none", "consecutive", "all"}, false},
 }
 
 func globalConfigKeys() []configKeyDef {
@@ -157,7 +157,7 @@ var configSetCmd = &cobra.Command{
 }
 
 func runConfigListGlobal() error {
-	cfg, err := config.Load()
+	cfg, err := config.LoadGlobal()
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func runConfigListProfile(cmd *cobra.Command) error {
 }
 
 func runConfigGetGlobal(key string) error {
-	cfg, err := config.Load()
+	cfg, err := config.LoadGlobal()
 	if err != nil {
 		return err
 	}

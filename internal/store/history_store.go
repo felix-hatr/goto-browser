@@ -18,9 +18,23 @@ const lastEntryBufSize = 4096
 // HistoryEntry records a single open event.
 type HistoryEntry struct {
 	Time   time.Time `json:"time"`
-	Type   string    `json:"type"`   // "link", "group", or "url"
-	Target string    `json:"target"` // link key, group name, or direct URL
-	URLs   []string  `json:"urls"`   // resolved URLs opened
+	Type   string    `json:"-"`              // not stored; injected from filename on load
+	Target string    `json:"target"`         // link key, group name, or direct URL
+	URL    string    `json:"url,omitempty"`  // resolved URL (link type only)
+	URLs   []string  `json:"urls,omitempty"` // resolved URLs (group type only)
+}
+
+// DisplayURLs returns the resolved URL(s) for display purposes.
+// link type: returns URL field. group type: joins URLs. url type: returns Target (the URL itself).
+func (e HistoryEntry) DisplayURLs() string {
+	switch {
+	case e.URL != "":
+		return e.URL
+	case len(e.URLs) > 0:
+		return strings.Join(e.URLs, ", ")
+	default:
+		return e.Target
+	}
 }
 
 // RecentTargets returns unique targets from the history file in MRU order (most recent first).
@@ -44,7 +58,10 @@ func RecentTargets(path string) []string {
 
 // LoadHistory reads all entries from the JSONL history file.
 // Returns an empty slice if the file does not exist.
+// The entry Type is injected from the filename (e.g. "link.jsonl" → "link").
 func LoadHistory(path string) ([]HistoryEntry, error) {
+	typ := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -65,6 +82,7 @@ func LoadHistory(path string) ([]HistoryEntry, error) {
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			continue // skip malformed lines
 		}
+		e.Type = typ
 		entries = append(entries, e)
 	}
 	return entries, sc.Err()
