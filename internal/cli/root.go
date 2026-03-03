@@ -67,6 +67,13 @@ func init() {
 	})
 
 	rootCmd.PersistentFlags().StringVarP(&profileFlag, "profile", "p", "", "Profile to use (overrides active profile)")
+	rootCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		profiles, err := config.ListProfiles()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return profiles, cobra.ShellCompDirectiveNoFileComp
+	})
 	rootCmd.Version = Version
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 	rootCmd.SetHelpTemplate(zebroHelpTemplate)
