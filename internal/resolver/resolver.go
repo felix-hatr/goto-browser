@@ -216,6 +216,95 @@ func (r *Resolver) ResolveGroupLinks(linkTemplates []string, groupVars map[strin
 	return urls, errs
 }
 
+// ResolveGroupEntries converts link keys and direct URLs to positional URL templates
+// suitable for storage in a group's URLs slice.
+//
+// For named variable groups (nameToPos non-empty):
+//   - link keys: normalize + apply group variable mapping → look up in link store → get URL template
+//   - direct URLs: normalize + apply group variable mapping
+//
+// For positional variable groups (posGroupName has vars, nameToPos empty):
+//   - link keys/URLs must use positional vars (@1, @2); look up link directly
+//
+// For concrete groups (no vars):
+//   - link keys: resolve via resolver to get concrete URL
+//   - direct URLs: used as-is (must not contain group variables)
+func (r *Resolver) ResolveGroupEntries(linkKeys, rawURLs []string, nameToPos map[string]int, posGroupName string, lf *store.LinkFile, links []store.Link) ([]string, error) {
+	isPositionalGroup := store.HasVars(posGroupName) && len(nameToPos) == 0
+
+	var result []string
+
+	for _, key := range linkKeys {
+		norm := store.NormalizeVars(key, r.variablePrefix)
+
+		switch {
+		case len(nameToPos) > 0:
+			// Named variable group: apply group variable mapping to get positional link key
+			posKey, err := store.ApplyPositional(norm, nameToPos)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", key, err)
+			}
+			entry, ok := lf.Links[posKey]
+			if !ok {
+				return nil, fmt.Errorf("link %q not found", key)
+			}
+			result = append(result, entry.URL)
+
+		case isPositionalGroup:
+			// Positional variable group: link key must use positional vars
+			if len(store.ExtractVarNames(norm)) > 0 {
+				return nil, fmt.Errorf("%q uses named variables — positional group requires %s1, %s2, ... style", key, r.variablePrefix, r.variablePrefix)
+			}
+			entry, ok := lf.Links[norm]
+			if !ok {
+				return nil, fmt.Errorf("link %q not found", key)
+			}
+			result = append(result, entry.URL)
+
+		default:
+			// Concrete group: resolve link key to concrete URL
+			if store.HasVars(norm) {
+				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", key)
+			}
+			res, err := r.Resolve(key, links)
+			if err != nil {
+				return nil, fmt.Errorf("cannot resolve %q: %w", key, err)
+			}
+			result = append(result, res.URL)
+		}
+	}
+
+	for _, rawURL := range rawURLs {
+		norm := store.NormalizeVars(rawURL, r.variablePrefix)
+
+		switch {
+		case len(nameToPos) > 0:
+			// Named variable group: apply group variable mapping
+			posURL, err := store.ApplyPositional(norm, nameToPos)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", rawURL, err)
+			}
+			result = append(result, posURL)
+
+		case isPositionalGroup:
+			// Positional variable group: named vars not allowed
+			if len(store.ExtractVarNames(norm)) > 0 {
+				return nil, fmt.Errorf("%q uses named variables — positional group requires positional style", rawURL)
+			}
+			result = append(result, norm)
+
+		default:
+			// Concrete group: URL must not contain variables
+			if store.HasVars(norm) {
+				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", rawURL)
+			}
+			result = append(result, norm)
+		}
+	}
+
+	return result, nil
+}
+
 // suggest returns similar link keys using simple prefix/substring matching.
 func (r *Resolver) suggest(input string, links []store.Link) []string {
 	inputLower := strings.ToLower(input)

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -19,7 +20,9 @@ var groupCmd = &cobra.Command{
 }
 
 func init() {
-	groupCmd.AddCommand(groupListCmd, groupViewCmd, groupCreateCmd, groupDeleteCmd, groupAddCmd, groupRemoveCmd, groupClearCmd, groupRenameCmd)
+	groupCmd.AddCommand(groupListCmd, groupViewCmd, groupCreateCmd, groupDeleteCmd, groupAddCmd, groupRemoveCmd, groupClearCmd, groupRenameCmd, groupSearchCmd, groupExportCmd, groupImportCmd)
+	groupExportCmd.Flags().StringP("output", "o", "", "Output file (default: stdout)")
+	groupImportCmd.Flags().Bool("replace", false, "Replace existing data instead of merging")
 	groupCreateCmd.Flags().StringP("description", "d", "", "Group description")
 	groupCreateCmd.Flags().StringArrayP("link", "l", nil, "Link key to add (repeatable)")
 	groupCreateCmd.Flags().StringArrayP("url", "u", nil, "Direct URL to add (repeatable)")
@@ -67,12 +70,15 @@ func init() {
 		fmt.Fprintln(w, "COMMANDS")
 		fmt.Fprintln(w, "  list:\tList all groups")
 		fmt.Fprintln(w, "  view:\tShow group details")
+		fmt.Fprintln(w, "  search:\tSearch groups by keyword")
 		fmt.Fprintln(w, "  create:\tCreate a new group")
 		fmt.Fprintln(w, "  rename:\tRename a group")
 		fmt.Fprintln(w, "  delete:\tRemove a group")
 		fmt.Fprintln(w, "  add:\tAdd links or URLs to a group")
 		fmt.Fprintln(w, "  remove:\tRemove entries from a group")
 		fmt.Fprintln(w, "  clear:\tRemove all groups")
+		fmt.Fprintln(w, "  export:\tExport groups to a YAML file")
+		fmt.Fprintln(w, "  import:\tImport groups from a YAML file")
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "FLAGS")
 		fmt.Fprintln(w, "  -h, --help\tShow help for command")
@@ -147,7 +153,8 @@ If the group already exists, it is replaced.`,
 			return err
 		}
 
-		posURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, store.LinksFromFile(lf))
+		r := resolver.New(cfg.VariablePrefix)
+		posURLTemplates, err := r.ResolveGroupEntries(rawLinkKeys, rawURLs, nameToPos, posName, lf, store.LinksFromFile(lf))
 		if err != nil {
 			return err
 		}
@@ -353,7 +360,8 @@ By default entries are appended to the end. Use --at to insert at a specific
 		}
 
 		nameToPos := store.NameToPos(entry.Params)
-		newURLTemplates, err := resolveGroupEntries(rawLinkKeys, rawURLs, cfg.VariablePrefix, nameToPos, posName, lf, store.LinksFromFile(lf))
+		r := resolver.New(cfg.VariablePrefix)
+		newURLTemplates, err := r.ResolveGroupEntries(rawLinkKeys, rawURLs, nameToPos, posName, lf, store.LinksFromFile(lf))
 		if err != nil {
 			return err
 		}
@@ -452,7 +460,8 @@ Removing by position (--at) removes the URL at that 1-based index.`,
 			return err
 		}
 		nameToPos := store.NameToPos(entry.Params)
-		removeURLs, err := resolveGroupEntries(keys, nil, cfg.VariablePrefix, nameToPos, posName, lf, store.LinksFromFile(lf))
+		r := resolver.New(cfg.VariablePrefix)
+		removeURLs, err := r.ResolveGroupEntries(keys, nil, nameToPos, posName, lf, store.LinksFromFile(lf))
 		if err != nil {
 			return err
 		}
@@ -564,96 +573,6 @@ func completeLinkKeysAll(_ *cobra.Command, _ []string, _ string) ([]string, cobr
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
-// resolveGroupEntries converts link keys and direct URLs to positional URL templates
-// suitable for storage in a group's URLs slice.
-//
-// For named variable groups (nameToPos non-empty):
-//   - link keys: normalize + apply group variable mapping → look up in link store → get URL template
-//   - direct URLs: normalize + apply group variable mapping
-//
-// For positional variable groups (posGroupName has vars, nameToPos empty):
-//   - link keys/URLs must use positional vars (@1, @2); look up link directly
-//
-// For concrete groups (no vars):
-//   - link keys: resolve via resolver to get concrete URL
-//   - direct URLs: used as-is (must not contain group variables)
-func resolveGroupEntries(linkKeys, rawURLs []string, variablePrefix string, nameToPos map[string]int, posGroupName string, lf *store.LinkFile, links []store.Link) ([]string, error) {
-	isPositionalGroup := store.HasVars(posGroupName) && len(nameToPos) == 0
-	r := resolver.New(variablePrefix)
-
-	var result []string
-
-	for _, key := range linkKeys {
-		norm := store.NormalizeVars(key, variablePrefix)
-
-		switch {
-		case len(nameToPos) > 0:
-			// Named variable group: apply group variable mapping to get positional link key
-			posKey, err := store.ApplyPositional(norm, nameToPos)
-			if err != nil {
-				return nil, fmt.Errorf("%q: %w", key, err)
-			}
-			entry, ok := lf.Links[posKey]
-			if !ok {
-				return nil, fmt.Errorf("link %q not found", key)
-			}
-			result = append(result, entry.URL)
-
-		case isPositionalGroup:
-			// Positional variable group: link key must use positional vars
-			if len(store.ExtractVarNames(norm)) > 0 {
-				return nil, fmt.Errorf("%q uses named variables — positional group requires %s1, %s2, ... style", key, variablePrefix, variablePrefix)
-			}
-			entry, ok := lf.Links[norm]
-			if !ok {
-				return nil, fmt.Errorf("link %q not found", key)
-			}
-			result = append(result, entry.URL)
-
-		default:
-			// Concrete group: resolve link key to concrete URL
-			if store.HasVars(norm) {
-				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", key)
-			}
-			res, err := r.Resolve(key, links)
-			if err != nil {
-				return nil, fmt.Errorf("cannot resolve %q: %w", key, err)
-			}
-			result = append(result, res.URL)
-		}
-	}
-
-	for _, rawURL := range rawURLs {
-		norm := store.NormalizeVars(rawURL, variablePrefix)
-
-		switch {
-		case len(nameToPos) > 0:
-			// Named variable group: apply group variable mapping
-			posURL, err := store.ApplyPositional(norm, nameToPos)
-			if err != nil {
-				return nil, fmt.Errorf("%q: %w", rawURL, err)
-			}
-			result = append(result, posURL)
-
-		case isPositionalGroup:
-			// Positional variable group: named vars not allowed
-			if len(store.ExtractVarNames(norm)) > 0 {
-				return nil, fmt.Errorf("%q uses named variables — positional group requires positional style", rawURL)
-			}
-			result = append(result, norm)
-
-		default:
-			// Concrete group: URL must not contain variables
-			if store.HasVars(norm) {
-				return nil, fmt.Errorf("%q contains a variable — this group has no variables defined in its name", rawURL)
-			}
-			result = append(result, norm)
-		}
-	}
-
-	return result, nil
-}
-
 // completeGroupNames returns group names for tab completion.
 func completeGroupNamesAll(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 	profile, cfg, err := currentProfile()
@@ -682,4 +601,162 @@ func completeGroupNames(cmd *cobra.Command, args []string, toComplete string) ([
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return completeGroupNamesAll(cmd, args, toComplete)
+}
+
+var groupSearchCmd = &cobra.Command{
+	Use:   "search <keyword>",
+	Short: "Search groups by keyword",
+	Long:  "Search groups by name or description (case-insensitive substring match).",
+	Example: `  $ zebro group search morning
+  $ zebro group search dev`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: cobra.NoFileCompletions,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		keyword := args[0]
+		profile, cfg, err := currentProfile()
+		if err != nil {
+			return err
+		}
+
+		groups, err := store.ListGroups(config.ProfileGroupsFile(profile))
+		if err != nil {
+			return err
+		}
+
+		kLower := strings.ToLower(keyword)
+		var matched []store.Group
+		for _, g := range groups {
+			name := displayVar(g.Name, cfg.VariablePrefix, g.Params, cfg.VariableDisplay)
+			if strings.Contains(strings.ToLower(name), kLower) ||
+				strings.Contains(strings.ToLower(g.Description), kLower) {
+				matched = append(matched, g)
+			}
+		}
+
+		if len(matched) == 0 {
+			fmt.Printf("no groups matching %q\n", keyword)
+			return nil
+		}
+
+		var buf bytes.Buffer
+		w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
+		if cfg.VariableDisplay == "positional" {
+			fmt.Fprintln(w, "NAME\tURLS\tDESCRIPTION\tPARAMS")
+			fmt.Fprintln(w, "----\t----\t-----------\t------")
+			for _, g := range matched {
+				fmt.Fprintf(w, "%s\t%d\t%s\t%s\n",
+					store.DenormalizeVars(g.Name, cfg.VariablePrefix),
+					len(g.URLs),
+					g.Description,
+					formatParams(cfg.VariablePrefix, g.Params))
+			}
+		} else {
+			fmt.Fprintln(w, "NAME\tURLS\tDESCRIPTION")
+			fmt.Fprintln(w, "----\t----\t-----------")
+			for _, g := range matched {
+				fmt.Fprintf(w, "%s\t%d\t%s\n",
+					store.DenormalizeParams(g.Name, cfg.VariablePrefix, g.Params),
+					len(g.URLs),
+					g.Description)
+			}
+		}
+		w.Flush()
+		fmt.Print(highlightKeyword(buf.String(), keyword))
+		return nil
+	},
+}
+
+var groupExportCmd = &cobra.Command{
+	Use:   "export [-o <file>]",
+	Short: "Export groups to a YAML file",
+	Long:  "Export all groups in the current profile to a YAML file (default: stdout).",
+	Example: `  $ zebro group export
+  $ zebro group export -o /tmp/groups.yaml`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		profile, _, err := currentProfile()
+		if err != nil {
+			return err
+		}
+		gf, err := store.LoadGroups(config.ProfileGroupsFile(profile))
+		if err != nil {
+			return err
+		}
+		ef := &store.ExportFile{
+			Version: "1",
+			Groups:  gf.Groups,
+		}
+		outPath, _ := cmd.Flags().GetString("output")
+		if outPath == "" {
+			data, err := store.MarshalExportFile(ef)
+			if err != nil {
+				return err
+			}
+			fmt.Print(string(data))
+			return nil
+		}
+		if err := store.SaveExportFile(outPath, ef); err != nil {
+			return err
+		}
+		fmt.Printf("exported %d group(s) to %s\n", len(gf.Groups), outPath)
+		return nil
+	},
+}
+
+var groupImportCmd = &cobra.Command{
+	Use:   "import <file>",
+	Short: "Import groups from a YAML file",
+	Long: `Import groups from an export YAML file.
+
+By default (merge mode): new groups are added, existing names are skipped.
+Use --replace to overwrite all existing groups with the imported data.`,
+	Example: `  $ zebro group import /tmp/groups.yaml
+  $ zebro group import /tmp/groups.yaml --replace`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: cobra.NoFileCompletions,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		profile, _, err := currentProfile()
+		if err != nil {
+			return err
+		}
+		ef, err := store.LoadExportFile(args[0])
+		if err != nil {
+			return err
+		}
+		if len(ef.Groups) == 0 {
+			fmt.Println("no groups found in export file")
+			return nil
+		}
+
+		replace, _ := cmd.Flags().GetBool("replace")
+		groupsPath := config.ProfileGroupsFile(profile)
+		gf, err := store.LoadGroups(groupsPath)
+		if err != nil {
+			return err
+		}
+
+		if replace {
+			gf.Groups = ef.Groups
+			if err := store.SaveGroups(groupsPath, gf); err != nil {
+				return err
+			}
+			fmt.Printf("replaced groups: imported %d\n", len(ef.Groups))
+			return nil
+		}
+
+		imported, skipped := 0, 0
+		for name, entry := range ef.Groups {
+			if _, exists := gf.Groups[name]; exists {
+				skipped++
+				continue
+			}
+			gf.Groups[name] = entry
+			imported++
+		}
+		if err := store.SaveGroups(groupsPath, gf); err != nil {
+			return err
+		}
+		fmt.Printf("imported %d, skipped %d\n", imported, skipped)
+		return nil
+	},
 }
